@@ -47,7 +47,8 @@ draft left open.
 
 - **(added)** `ready()` is sent to SlimTV once per page load. Later calls do nothing.
 - **(added)** `exit()` is sent every time it is called. SlimTV treats a repeat as harmless.
-- **(added)** `log()` converts `message` to a string and cuts it to 2000 characters. An unknown
+- **(added)** `log()` converts `message` to a string and cuts it to 2000 characters, or shorter if
+  needed to keep the whole wire message within 4096 characters. An unknown
   `level` is sent as `"info"`. (TypeScript games can only pass a valid level and a string; these
   rules are for plain JavaScript callers that pass something else anyway.)
 
@@ -149,6 +150,9 @@ All three arrive as events on `window`.
 
 **Config**
 - SlimTV prepends `window.__SLIMTV_CONFIG__ = { device }` to the shim source it injects.
+- **(added)** Native writes that line's value with a JSON encoder, never by joining strings. A quote
+  or line break in the device name would otherwise break the whole script, and the page would get
+  no `window.SlimTV` at all.
 - The shim reads it synchronously, before any page script runs.
 
 **Shim to native**
@@ -197,6 +201,8 @@ because getting any of them wrong breaks a game in ways the page cannot detect o
 - Native can only send messages through the reply proxy it received with the shim's `hello`. It
   keeps that proxy and sends all input, pause and resume through it.
 - A new `hello` arrives after every navigation or reload. Native replaces the proxy each time.
+- **(added)** Leave WebView's back/forward cache off for the game WebView (it is off by default). A
+  page restored from that cache doesn't run the shim again, so no new `hello` or `ready` arrives.
 - Native sends nothing before the first `hello`. Input that happens before then is dropped.
 
 **Messages**

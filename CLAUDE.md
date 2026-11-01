@@ -19,7 +19,8 @@ the Python service on kilotin; say "game bridge" when that could be confused.
   Never hand-edit it.
 - No em dashes in UI copy, comments, or docs.
 - The repo is public. Nothing private goes in it.
-- Commands: `npm run typecheck`.
+- Commands: `npm run typecheck`, `npm test`, `npm run build` (rewrites `dist/`),
+  `npm run check:dist` (fails if `dist/` is stale).
 
 ## Baseline safety
 

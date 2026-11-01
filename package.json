@@ -1,0 +1,27 @@
+{
+  "name": "slimtv-game-bridge",
+  "version": "0.1.0",
+  "description": "The shared layer between SlimTV and the web games it launches: the injected shim and the game kit.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/egmutza/slimtv-game-bridge.git"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node build.mjs",
+    "check:dist": "node build.mjs --check"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
