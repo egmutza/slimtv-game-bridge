@@ -55,6 +55,23 @@ Game logs (`log()`) go to the browser console.
 What it can't show: on the TV, input never counts as a user gesture, so audio that waits for one
 never starts. In a computer's browser a key press does count, so check audio on the TV itself.
 
+## The bridge test page
+
+SlimTV's built-in Bridge Test tile opens <https://egmutza.github.io/slimtv-game-bridge/test/>, built
+from `test-page/` and published by GitHub Pages on every push to `main`. It checks SlimTV's side
+of the contract on the TV:
+
+- whether the shim arrived before the page's own scripts, and its release next to the kit's;
+- every input and pause or resume event, with a live grid of held buttons per player;
+- the window size, pixel ratio and screen the TV's browser reports;
+- whether a tone can play at load with no button press;
+- whether localStorage, a cookie and IndexedDB survive closing and reopening the page;
+- any warnings the shim logs about bad messages from SlimTV.
+
+Left and right move between its Ready, Exit and Play tone buttons and OK presses one. Before
+Ready, Back should leave at once; after it, only holding Back for 1 second should. On a computer,
+open it with `?platform=slimtv&fakebridge=1` to run it under the fake bridge.
+
 ## Working on this repo
 
 ```
@@ -62,6 +79,7 @@ npm run typecheck
 npm test
 npm run build        # rewrites dist/
 npm run check:dist   # fails if dist/ is stale
+npm run build:site   # builds the test page into site/ (not committed)
 ```
 
 `dist/` is committed, so games and SlimTV install it without building anything. Never edit it by

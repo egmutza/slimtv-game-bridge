@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridge Test</title>
+<script>
+  // Runs before any other page script: did SlimTV's shim arrive first, as the contract requires?
+  window.__shimFirst = "SlimTV" in window;
+  window.__slimtvConsole = [];
+  for (const level of ["warn", "error"]) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => {
+      if (typeof args[0] === "string" && args[0].startsWith("[SlimTV")) {
+        window.__slimtvConsole.push(level + ": " + args.map(String).join(" "));
+        window.dispatchEvent(new Event("bridge-test:console"));
+      }
+      original(...args);
+    };
+  }
+</script>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #171a22;
+    --line: #2a2f3b;
+    --text: #e8eaf0;
+    --muted: #8b92a3;
+    --ok: #4ade80;
+    --bad: #f87171;
+    --warn: #fbbf24;
+    --accent: #60a5fa;
+    --held: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 1.05vw/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 1.6vw 2vw;
+    overflow: hidden;
+  }
+  header { display: flex; align-items: baseline; gap: 2vw; margin-bottom: 1.2vw; }
+  h1 { margin: 0; font-size: 2.2vw; }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); }
+  .bad { color: var(--bad); }
+  .warn { color: var(--warn); }
+  main { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 1.2vw; height: calc(100% - 4.4vw); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 0.8vw; padding: 1vw 1.2vw; overflow: hidden; }
+  h2 { margin: 0 0 0.6vw; font-size: 1.15vw; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .column { display: flex; flex-direction: column; gap: 1.2vw; min-height: 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25vw 1vw; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 0.25vw 0.4vw; text-align: center; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  td.held { background: var(--held); color: #fff; font-weight: 700; }
+  ol { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.95vw; }
+  ol li { padding: 0.15vw 0; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .buttons { display: flex; gap: 1vw; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 1.3vw; color: var(--text); background: #232838;
+    border: 0.2vw solid var(--line); border-radius: 0.6vw; padding: 0.6vw 1.4vw; cursor: pointer;
+  }
+  button:focus { outline: none; border-color: var(--accent); background: #2b3450; }
+  .hint { margin: 0.6vw 0 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bridge Test</h1>
+  <span id="releases" class="muted"></span>
+  <span id="shim-first"></span>
+</header>
+<main>
+  <div class="column">
+    <section>
+      <h2>Controls</h2>
+      <div class="buttons">
+        <button id="ready">Ready</button>
+        <button id="exit">Exit</button>
+        <button id="tone">Play tone</button>
+      </div>
+      <p class="hint" id="ready-hint"></p>
+      <p class="hint">Left and right move between buttons; OK presses one. Back is only logged here: hold it for 1 second to leave.</p>
+    </section>
+    <section style="flex: 1; min-height: 0;">
+      <h2>Input and events <span id="count" class="muted"></span></h2>
+      <ol id="log"></ol>
+    </section>
+  </div>
+  <div class="column">
+    <section>
+      <h2>Held now</h2>
+      <table id="grid"></table>
+    </section>
+    <section>
+      <h2>Device and screen</h2>
+      <dl id="screen"></dl>
+    </section>
+  </div>
+  <div class="column">
+    <section>
+      <h2>Audio with no button press</h2>
+      <dl id="audio"></dl>
+    </section>
+    <section>
+      <h2>Storage across launches</h2>
+      <dl id="storage"></dl>
+    </section>
+    <section style="flex: 1; min-height: 0;">
+      <h2>Shim warnings</h2>
+      <ol id="warnings"><li class="muted">None so far.</li></ol>
+    </section>
+  </div>
+</main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

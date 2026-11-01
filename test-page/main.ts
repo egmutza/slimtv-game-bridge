@@ -1,0 +1,256 @@
+// The bridge test page: SlimTV opens it like a game, to check SlimTV's side of the contract on the
+// TV. On a computer, ?platform=slimtv&fakebridge=1 runs it under the fake bridge instead.
+
+import "../src/fake/auto";
+import { ACTIONS, type InputDetail } from "../src/contract";
+import { bridgeRelease, createInput, device, exit, isSlimTV, log, onPause, onResume, ready, RELEASE_NAME } from "../src/kit/index";
+
+declare global {
+  interface Window {
+    __shimFirst?: boolean;
+    __slimtvConsole?: string[];
+  }
+}
+
+const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+const time = (): string => new Date().toLocaleTimeString([], { hour12: false });
+
+function row(list: HTMLElement, label: string, value: string, tone?: "ok" | "bad" | "warn"): void {
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  if (tone) dd.className = tone;
+  list.append(dt, dd);
+}
+
+// ----- Header: releases, and whether the shim came first --------------------------------------
+
+const fake = new URLSearchParams(location.search).get("fakebridge") === "1";
+const bridge = bridgeRelease();
+$("releases").textContent =
+  `shim: ${bridge ?? "none"} · kit: ${RELEASE_NAME}` + (bridge && bridge !== RELEASE_NAME ? " (different!)" : "");
+const first = $("shim-first");
+if (window.__shimFirst) {
+  first.textContent = "Shim arrived before page scripts";
+  first.className = "ok";
+} else if (bridge && fake) {
+  first.textContent = "Fake bridge (on a computer)";
+  first.className = "warn";
+} else if (bridge) {
+  first.textContent = "Shim arrived after page scripts";
+  first.className = "bad";
+} else {
+  first.textContent = isSlimTV() ? "TV mode, but no bridge" : "Not in SlimTV";
+  first.className = "bad";
+}
+
+// ----- Input log and counter ------------------------------------------------------------------
+
+const logList = $("log");
+const countLabel = $("count");
+let received = 0;
+function addLog(text: string, tone?: "ok" | "bad" | "warn"): void {
+  const li = document.createElement("li");
+  li.textContent = `${time()}  ${text}`;
+  if (tone) li.className = tone;
+  logList.prepend(li);
+  while (logList.children.length > 40) logList.lastElementChild?.remove();
+}
+function countEvent(): void {
+  received++;
+  countLabel.textContent = `(${received} from SlimTV)`;
+}
+
+const input = createInput();
+input.on((d: InputDetail) => {
+  countEvent();
+  addLog(`${d.action.padEnd(8)} ${d.state.padEnd(4)} ${d.repeat ? "repeat" : "      "} ${d.source.padEnd(7)} p${d.player}`);
+  if (d.state !== "down") return;
+  if (d.action === "left" || d.action === "right") moveFocus(d.action === "left" ? -1 : 1);
+  if (d.action === "confirm" && !d.repeat && document.activeElement instanceof HTMLButtonElement) {
+    document.activeElement.click();
+  }
+});
+onPause(() => {
+  countEvent();
+  addLog("pause", "warn");
+  log("info", "bridge test: paused");
+});
+onResume(() => {
+  countEvent();
+  addLog("resume", "ok");
+});
+
+// ----- Held-now grid --------------------------------------------------------------------------
+
+const PLAYERS = [1, 2, 3, 4];
+const grid = $<HTMLTableElement>("grid");
+const head = grid.insertRow();
+for (const label of ["Action", "Any", ...PLAYERS.map((p) => `P${p}`)]) {
+  const th = document.createElement("th");
+  th.textContent = label;
+  head.append(th);
+}
+const cells = ACTIONS.map((action) => {
+  const tr = grid.insertRow();
+  tr.insertCell().textContent = action;
+  return { action, cells: [undefined, ...PLAYERS].map(() => tr.insertCell()) };
+});
+function drawGrid(): void {
+  for (const { action, cells: row } of cells) {
+    [undefined, ...PLAYERS].forEach((player, i) => {
+      const held = input.isDown(action, player);
+      const cell = row[i]!;
+      cell.className = held ? "held" : "";
+      cell.textContent = held ? "down" : "";
+    });
+  }
+  requestAnimationFrame(drawGrid);
+}
+requestAnimationFrame(drawGrid);
+
+// ----- Buttons and focus ----------------------------------------------------------------------
+
+const buttons = [$<HTMLButtonElement>("ready"), $<HTMLButtonElement>("exit"), $<HTMLButtonElement>("tone")];
+function moveFocus(step: number): void {
+  const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = buttons[(at + step + buttons.length) % buttons.length] ?? buttons[0];
+  next?.focus();
+}
+buttons[0]?.focus();
+
+const readyHint = $("ready-hint");
+readyHint.textContent = "Not ready yet: Back should leave at once.";
+readyHint.className = "warn";
+buttons[0]!.addEventListener("click", () => {
+  ready();
+  addLog("ready() sent", "ok");
+  readyHint.textContent = "Ready sent: SlimTV's loading screen should be gone, and Back only leaves when held.";
+  readyHint.className = "ok";
+});
+buttons[1]!.addEventListener("click", () => {
+  addLog("exit() sent", "warn");
+  exit();
+});
+buttons[2]!.addEventListener("click", () => void playTone("Play tone"));
+
+// ----- Device and screen ----------------------------------------------------------------------
+
+function drawScreen(): void {
+  const list = $("screen");
+  list.replaceChildren();
+  const d = device();
+  row(list, "Device", d ? `${d.name} (tier ${d.tier})` : "none");
+  row(list, "Window", `${innerWidth} x ${innerHeight}`, innerWidth === 1920 && innerHeight === 1080 ? "ok" : "warn");
+  row(list, "Pixel ratio", String(devicePixelRatio));
+  row(list, "Visual viewport", visualViewport ? `${Math.round(visualViewport.width)} x ${Math.round(visualViewport.height)}, scale ${visualViewport.scale}` : "n/a");
+  row(list, "Screen", `${screen.width} x ${screen.height}`);
+  row(list, "Expected", "1920 x 1080 at pixel ratio 2 (provisional)", "warn");
+  row(list, "User agent", navigator.userAgent);
+}
+drawScreen();
+addEventListener("resize", drawScreen);
+
+// ----- Audio with no button press -------------------------------------------------------------
+
+async function playTone(trigger: string): Promise<void> {
+  const list = $("audio");
+  list.replaceChildren();
+  row(list, "Started by", trigger);
+  const Context = window.AudioContext;
+  if (!Context) {
+    row(list, "Web Audio", "not available", "bad");
+    return;
+  }
+  const context = new Context();
+  const tone = context.createOscillator();
+  const gain = context.createGain();
+  tone.frequency.value = 440;
+  gain.gain.value = 0.08;
+  tone.connect(gain).connect(context.destination);
+  tone.start();
+  tone.stop(context.currentTime + 0.4);
+  await new Promise((r) => setTimeout(r, 500));
+  const running = context.state === "running";
+  const onTV = Boolean(bridge) && !fake;
+  row(list, "Audio state", context.state, running ? "ok" : onTV ? "bad" : "warn");
+  row(
+    list,
+    "Result",
+    running
+      ? "Allowed: you should have heard a short tone."
+      : onTV
+        ? "Blocked: SlimTV's setMediaPlaybackRequiresUserGesture(false) is missing."
+        : "Blocked, as a computer's browser does before the first click. Only the TV's result counts.",
+    running ? "ok" : onTV ? "bad" : "warn",
+  );
+  void context.close();
+}
+void playTone("page load");
+
+// ----- Storage across launches ----------------------------------------------------------------
+
+const STORE = "bridge-test-launch";
+
+async function drawStorage(): Promise<void> {
+  const list = $("storage");
+  const now = new Date().toISOString();
+  const describe = (previous: string | null | undefined): [string, "ok" | "warn"] =>
+    previous ? [`kept from ${new Date(previous).toLocaleString()}`, "ok"] : ["nothing saved before (first launch?)", "warn"];
+
+  try {
+    const previous = localStorage.getItem(STORE);
+    localStorage.setItem(STORE, now);
+    row(list, "localStorage", ...describe(previous));
+  } catch (error) {
+    row(list, "localStorage", `unavailable: ${String(error)}`, "bad");
+  }
+
+  const cookie = document.cookie.split("; ").find((c) => c.startsWith(`${STORE}=`));
+  document.cookie = `${STORE}=${encodeURIComponent(now)}; max-age=31536000; path=/; SameSite=Lax; Secure`;
+  row(list, "Cookie", ...describe(cookie ? decodeURIComponent(cookie.slice(STORE.length + 1)) : null));
+
+  try {
+    const previous = await new Promise<string | undefined>((resolve, reject) => {
+      const open = indexedDB.open("bridge-test", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("launches");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const store = db.transaction("launches", "readwrite").objectStore("launches");
+        const get = store.get("last");
+        get.onsuccess = () => {
+          store.put(now, "last");
+          resolve(get.result as string | undefined);
+        };
+        get.onerror = () => reject(get.error);
+        store.transaction.oncomplete = () => db.close();
+      };
+    });
+    row(list, "IndexedDB", ...describe(previous));
+  } catch (error) {
+    row(list, "IndexedDB", `unavailable: ${String(error)}`, "bad");
+  }
+  row(list, "How to check", "Exit, open Bridge Test again, and each line should say kept.");
+}
+void drawStorage();
+
+// ----- Shim warnings (bad messages from native) -----------------------------------------------
+
+const warnings = $("warnings");
+let shown = 0;
+function drawWarnings(): void {
+  const lines = window.__slimtvConsole ?? [];
+  if (lines.length === shown) return;
+  if (shown === 0) warnings.replaceChildren();
+  for (const line of lines.slice(shown)) {
+    const li = document.createElement("li");
+    li.textContent = line;
+    li.className = line.startsWith("error") ? "bad" : "warn";
+    warnings.append(li);
+  }
+  shown = lines.length;
+}
+drawWarnings();
+addEventListener("bridge-test:console", drawWarnings);
