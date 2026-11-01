@@ -49,55 +49,46 @@ outputs.push({ path: "dist/slimtv-shim.js", text: shimFile.text });
 const shimHash = createHash("sha256").update(shimFile.contents).digest("hex");
 outputs.push({ path: "dist/slimtv-shim.js.sha256", text: `${shimHash}  slimtv-shim.js\n` });
 
-// The kit: one readable ES module for games to import.
-const kit = await build({
-  entryPoints: ["src/kit/index.ts"],
+// The kit, and the fake bridge for trying a game in TV mode on a computer (the module itself, and
+// the entry that installs it when the address asks for it): readable ES modules for games to
+// import. They are built together so the code they share (input reading, held buttons and so on)
+// goes into one shared chunk. A game importing both the kit and fake/auto, as games are told to,
+// then carries that code once rather than twice.
+const ENTRIES = {
+  kit: ["src/kit/index.ts", "kit"],
+  fake: ["src/fake/index.ts", "fake bridge"],
+  "fake-auto": ["src/fake/auto.ts", "fake bridge auto-install entry"],
+};
+const modules = await build({
+  entryPoints: Object.fromEntries(Object.entries(ENTRIES).map(([out, [entry]]) => [out, entry])),
   bundle: true,
+  splitting: true,
   format: "esm",
   target: "es2022",
   platform: "browser",
   charset: "utf8",
   legalComments: "none",
   write: false,
-  outfile: "dist/kit.js",
-  banner: {
-    js:
-      `// slimtv-game-bridge kit, release ${name} (tag ${tag}).\n` +
-      "// Built from src/kit by build.mjs; do not edit.",
-  },
+  outdir: "dist",
+  chunkNames: "chunk-[hash]",
 });
-outputs.push({ path: "dist/kit.js", text: kit.outputFiles[0].text });
-
-// The fake bridge, for trying a game in TV mode on a computer: the module itself, and the entry
-// that installs it when the address asks for it.
-for (const [entry, out, what] of [
-  ["src/fake/index.ts", "dist/fake.js", "fake bridge"],
-  ["src/fake/auto.ts", "dist/fake-auto.js", "fake bridge auto-install entry"],
-]) {
-  const result = await build({
-    entryPoints: [entry],
-    bundle: true,
-    format: "esm",
-    target: "es2022",
-    platform: "browser",
-    charset: "utf8",
-    legalComments: "none",
-    write: false,
-    outfile: out,
-    banner: {
-      js:
-        `// slimtv-game-bridge ${what}, release ${name} (tag ${tag}).\n` +
-        "// For trying a game on a computer; inside SlimTV it does nothing. Built by build.mjs; do not edit.",
-    },
-  });
-  outputs.push({ path: out, text: result.outputFiles[0].text });
+for (const file of modules.outputFiles) {
+  const path = relative(process.cwd(), file.path);
+  const out = path.replace(/^dist\//, "").replace(/\.js$/, "");
+  const what = ENTRIES[out]?.[1] ?? "shared code";
+  const note = out.startsWith("fake")
+    ? "// For trying a game on a computer; inside SlimTV it does nothing. Built by build.mjs; do not edit."
+    : "// Built by build.mjs; do not edit.";
+  outputs.push({ path, text: `// slimtv-game-bridge ${what}, release ${name} (tag ${tag}).\n${note}\n${file.text}` });
 }
 
 // TypeScript declarations for the kit and the fake bridge, from tsc (tsconfig.build.json), into
 // dist/types/.
 const typesDir = await mkdtemp(join(tmpdir(), "slimtv-game-bridge-types-"));
 try {
-  execFileSync("npx", ["tsc", "-p", "tsconfig.build.json", "--outDir", typesDir], { stdio: "inherit" });
+  // --no-install: if this repo's TypeScript is ever missing, fail rather than let npx fetch and run
+  // whatever npm package happens to be named "tsc" (an unrelated one is).
+  execFileSync("npx", ["--no-install", "tsc", "-p", "tsconfig.build.json", "--outDir", typesDir], { stdio: "inherit" });
   for (const file of await listFiles(typesDir)) {
     outputs.push({ path: join("dist/types", relative(typesDir, file)), text: await readFile(file, "utf8") });
   }

@@ -72,7 +72,29 @@ import "slimtv-game-bridge/fake/auto";
 ```
 
 Then open the game with `?platform=slimtv&fakebridge=1` in the address. Anywhere else, including
-inside the real SlimTV, the import does nothing. To install it yourself instead, call
+inside the real SlimTV, the import does nothing.
+
+Left in a production build, it still does nothing on the TV, but every launch there loads about
+12 KB of fake bridge code for no use. Anyone can also switch it on with that address in their own
+browser tab. That only affects their own tab, but a game that wants none of it in production can
+point the import at an empty file for production builds. With Vite, for example, in
+`vite.config.ts`:
+
+```ts
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
+
+const empty = fileURLToPath(new URL("./src/empty.ts", import.meta.url));
+
+export default defineConfig(({ mode }) => ({
+  resolve: {
+    alias: mode === "production" ? { "slimtv-game-bridge/fake/auto": empty } : {},
+  },
+}));
+```
+
+where `src/empty.ts` is an empty file. The game then can't be tried under the fake bridge from a
+production build, only from the dev server. To install it yourself instead, call
 `installFakeBridge()` from `slimtv-game-bridge/fake` before the game calls `createInput()`; an
 input created earlier stays in computer mode and won't hear the keyboard.
 
@@ -123,9 +145,9 @@ open it with `?platform=slimtv&fakebridge=1` to run it under the fake bridge.
 ## Making a release
 
 1. Pick the next "Adjective Animal" name. Set it in `src/release.ts` (name and tag), the
-   "Release:" line of `CONTRACT.md`, a new top entry in `CHANGELOG.md` (mark anything that needs
-   SlimTV and every game updated together **BREAKING**), and the tag in this README's install
-   command and download links.
+   "Release:" line of `CONTRACT.md`, a new top entry in `CHANGELOG.md` (rename its "Unreleased"
+   section to the new name and tag, and mark anything that needs SlimTV and every game updated
+   together **BREAKING**), and the tag in this README's install command and download links.
 2. `npm run build`, then `npm test`, `npm run check:dist` and `npm run check:release`.
 3. Commit and push, and wait for CI to pass.
 4. Install from the pushed commit into an empty project and import each entry, to be sure a game

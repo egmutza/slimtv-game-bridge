@@ -2,7 +2,7 @@
 // player numbers, and disconnects.
 
 import { describe, expect, it } from "vitest";
-import type { InputDetail } from "../src/contract";
+import { MAX_PLAYERS, type InputDetail } from "../src/contract";
 import { createGamepadReader, type GamepadLike } from "../src/gamepad";
 
 function pad(index: number, fields: { buttons?: number[]; axes?: number[]; mapping?: string } = {}): GamepadLike {
@@ -102,5 +102,21 @@ describe("gamepad reader", () => {
     reader.read([pad(0, { buttons: [0] })]);
     reader.read([pad(0, { buttons: [0] })]);
     expect(events.every((e) => !e.repeat)).toBe(true);
+  });
+
+  it("skips controllers beyond the last player number until one goes away", () => {
+    const { reader, brief, warnings } = setup();
+    const pads = Array.from({ length: MAX_PLAYERS + 2 }, (_, i) => pad(i, { buttons: [0] }));
+    reader.read(pads);
+    const downs = brief();
+    expect(downs).toHaveLength(MAX_PLAYERS);
+    expect(downs.at(-1)).toBe(`confirm down p${MAX_PLAYERS}`);
+    expect(warnings).toEqual([`More than ${MAX_PLAYERS} controllers are connected; the extra ones are ignored.`]);
+    reader.read(pads);
+    expect(brief()).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    // Player 3's controller goes away; the first one waiting takes its number.
+    reader.read(pads.filter((_, i) => i !== 2));
+    expect(brief()).toEqual(["confirm up p3", "confirm down p3"]);
   });
 });

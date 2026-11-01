@@ -16,6 +16,7 @@
     "action2"
   ];
   var INPUT_SOURCES = ["remote", "gamepad"];
+  var MAX_PLAYERS = 16;
   var LOG_LEVELS = ["debug", "info", "warn", "error"];
   var LOG_MESSAGE_MAX = 2e3;
   var INPUT_EVENT = "slimtv:input";
@@ -109,7 +110,8 @@
     };
     const handleInput = (message) => {
       const { action, state, repeat, source, player } = message;
-      if (!isOneOf(ACTIONS, action) || state !== "down" && state !== "up" || typeof repeat !== "boolean" || state === "up" && repeat || !isOneOf(INPUT_SOURCES, source) || typeof player !== "number" || !Number.isSafeInteger(player) || player < 1) {
+      if (!isOneOf(ACTIONS, action) || state !== "down" && state !== "up" || typeof repeat !== "boolean" || state === "up" && repeat || !isOneOf(INPUT_SOURCES, source) || typeof player !== "number" || !Number.isSafeInteger(player) || player < 1 || // Each player number held is remembered until it's let go, so a cap keeps that bounded.
+      player > MAX_PLAYERS) {
         reportBad("bad-input", preview(message));
         return;
       }

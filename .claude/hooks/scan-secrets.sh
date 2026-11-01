@@ -59,12 +59,26 @@ fi
 
 # The opening quote is optional: a dotenv-style API_KEY=value carries no quote
 # at all and was previously missed. The 12-character floor on the value is what
-# keeps `token: ""` and short placeholders from tripping the hook.
+# keeps `token: ""` and short placeholders from tripping the hook. A quoted
+# name, as in JSON or a JavaScript or Python object ("password": "..."), was
+# missed entirely before. It has its own rule, which also needs the value
+# quoted: a quoted key set to a variable ("token": refresh_token) is ordinary
+# code, and blocking it would make writing such code impossible.
+#
+# The fixed-prefix patterns are token formats with a known shape: Anthropic,
+# AWS, private keys, GitHub (classic and fine-grained), npm, Google API keys and
+# Slack.
 if printf '%s' "$content" | grep -Eiq \
   -e 'sk-ant-[a-z0-9-]+' \
   -e 'AKIA[0-9A-Z]{16}' \
   -e '-----BEGIN ([A-Z]+ )*PRIVATE KEY-----' \
-  -e '(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*"?[^[:space:]"]{12,}'; then
+  -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+  -e 'github_pat_[A-Za-z0-9_]{22,}' \
+  -e 'npm_[A-Za-z0-9]{36}' \
+  -e 'AIza[0-9A-Za-z_-]{35}' \
+  -e 'xox[abposr]-[A-Za-z0-9-]{10,}' \
+  -e '(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*"?[^[:space:]"]{12,}' \
+  -e "(api[_-]?key|secret|token|password)[\"'][[:space:]]*[:=][[:space:]]*[\"'][^[:space:]\"']{12,}"; then
   echo "BLOCKED: content appears to contain a secret." >&2
   exit 2
 fi

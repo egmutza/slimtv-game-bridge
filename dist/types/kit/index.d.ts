@@ -1,5 +1,5 @@
 import type { DeviceInfo, LogLevel } from "../contract";
-export { ACTIONS, INPUT_EVENT, INPUT_SOURCES, LOG_LEVELS, LOG_MESSAGE_MAX, PAUSE_EVENT, RESUME_EVENT, STICK_PRESS, STICK_RELEASE, } from "../contract";
+export { ACTIONS, INPUT_EVENT, INPUT_SOURCES, LOG_LEVELS, LOG_MESSAGE_MAX, MAX_PLAYERS, PAUSE_EVENT, RESUME_EVENT, STICK_PRESS, STICK_RELEASE, } from "../contract";
 export type { Action, DeviceInfo, InputDetail, InputSource, InputState, LogLevel, SlimTVApi, SlimTVEventMap, SlimTVInput, } from "../contract";
 export { RELEASE_NAME, RELEASE_TAG } from "../release";
 export { GAMEPAD_BUTTONS } from "../gamepad";

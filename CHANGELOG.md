@@ -4,6 +4,21 @@ Each release has an "Adjective Animal" name and a git tag that is the name in lo
 hyphens. A change that needs SlimTV and every game updated together is marked **BREAKING**. See
 "Versioning" in [CONTRACT.md](CONTRACT.md).
 
+## Unreleased
+
+Changes on `main` since the last release. They get the next release's name when it is made.
+Nothing here is **BREAKING**: SlimTV and games can each take it up on their own.
+
+- **Contract**: player numbers go up to 16. A controller that connects while all 16 are taken
+  gets no number until one frees up, and the shim ignores input for a higher number as a bad
+  message. That keeps the shim's record of held buttons bounded whatever SlimTV sends.
+- **Contract**: SlimTV rate-limits every message from the page before parsing it, not only
+  `log`, so a page can't keep SlimTV's main thread (and the held-Back escape hatch) busy.
+- **Kit**: `MAX_PLAYERS` is exported. On a computer, controllers past the 16th are ignored, with
+  one warning.
+- **Package**: the kit and the fake bridge share their common code through a chunk file in
+  `dist/`, so a game that imports both carries about 7 KB less. Imports are unchanged.
+
 ## Steady Heron (steady-heron)
 
 The first release.

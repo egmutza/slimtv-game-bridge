@@ -26,7 +26,8 @@ export interface GamepadReader {
  * - A direction held by the D-pad and the stick together is one "down" and, when the last one
  *   lets go, one "up".
  * - The stick presses a direction at STICK_PRESS along its axis and releases below STICK_RELEASE.
- * - Each new controller takes the lowest free player number, starting at 1.
+ * - Each new controller takes the lowest free player number, starting at 1. One that would need a
+ *   number above MAX_PLAYERS is skipped, with one warning, until another controller goes away.
  * - A controller that goes away first reports an "up" for everything it held.
  * - Controllers without the browser's standard mapping are skipped, with one warning.
  * - Controllers never send repeats; games time their own from isDown.

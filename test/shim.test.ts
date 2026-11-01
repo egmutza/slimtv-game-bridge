@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { Window } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputDetail, SlimTVApi } from "../src/contract";
-import { LOG_MESSAGE_MAX, MAX_MESSAGE_LENGTH } from "../src/contract";
+import { LOG_MESSAGE_MAX, MAX_MESSAGE_LENGTH, MAX_PLAYERS } from "../src/contract";
 import { RELEASE_NAME } from "../src/release";
 import { createShim, type ShimWindow, type ShimTransport } from "../src/shim/core";
 import { nativeTransport, readDevice } from "../src/shim/native";
@@ -274,6 +274,7 @@ describe("bad messages", () => {
     ["unknown action", { action: "jump" }],
     ["player 0", { player: 0 }],
     ["fractional player", { player: 1.5 }],
+    ["player over the maximum", { player: MAX_PLAYERS + 1 }],
     ["player as text", { player: "1" }],
     ["unknown source", { source: "gamepad2" }],
     ["unknown state", { state: "held" }],
@@ -316,6 +317,23 @@ describe("bad messages", () => {
     expect(warnings).toHaveLength(2);
     expect(String(warnings[0]?.message)).toContain("unknown-type");
     expect(String(warnings[1]?.message)).toContain("not-json");
+  });
+
+  it("reports every one of the six kinds exactly once, however often each arrives", () => {
+    const { deliver, warn, sent } = setup();
+    const examples: [string, unknown][] = [
+      ["not-a-string", 42],
+      ["too-long", "x".repeat(MAX_MESSAGE_LENGTH + 1)],
+      ["not-json", "{bad"],
+      ["no-type", "[]"],
+      ["unknown-type", '{"type":"launch-missiles"}'],
+      ["bad-input", JSON.stringify({ type: "input", action: "jump", state: "down", repeat: false, source: "remote", player: 1 })],
+    ];
+    for (let round = 0; round < 3; round++) for (const [, data] of examples) deliver(data);
+    expect(warn).toHaveBeenCalledTimes(examples.length);
+    const warnings = sent.filter((m) => m.type === "log" && m.level === "warn").map((m) => String(m.message));
+    expect(warnings).toHaveLength(examples.length);
+    examples.forEach(([kind], i) => expect(warnings[i]).toContain(`(${kind})`));
   });
 
   it("survives a listener that throws", () => {

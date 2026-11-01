@@ -28,10 +28,13 @@ export const INPUT_SOURCES = ["remote", "gamepad"] as const;
 
 export type InputSource = (typeof INPUT_SOURCES)[number];
 
+/** The highest player number. Input for a higher one is a bad message. */
+export const MAX_PLAYERS = 16;
+
 interface InputDetailBase {
   readonly action: Action;
   readonly source: InputSource;
-  /** 1-based whole number. The remote and the first controller are both player 1. */
+  /** Whole number from 1 to MAX_PLAYERS. The remote and the first controller are both player 1. */
   readonly player: number;
 }
 

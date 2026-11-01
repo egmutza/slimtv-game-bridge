@@ -22,7 +22,8 @@ if (!name || !tag) {
     problems.push(`CONTRACT.md: the "Release:" line doesn't name ${name} (${tag})`);
   }
   const changelog = await readFile("CHANGELOG.md", "utf8");
-  const firstEntry = changelog.match(/^## (.+)$/m)?.[1];
+  // An "Unreleased" section may sit above the newest release, for changes on main since then.
+  const firstEntry = [...changelog.matchAll(/^## (.+)$/gm)].map((m) => m[1]).find((h) => h !== "Unreleased");
   if (firstEntry !== `${name} (${tag})`) {
     problems.push(`CHANGELOG.md: the newest entry is "${firstEntry}", not "${name} (${tag})"`);
   }

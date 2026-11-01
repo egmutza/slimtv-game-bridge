@@ -10,6 +10,7 @@ import {
   LOG_LEVELS,
   LOG_MESSAGE_MAX,
   MAX_MESSAGE_LENGTH,
+  MAX_PLAYERS,
   PAUSE_EVENT,
   RESUME_EVENT,
   type Action,
@@ -115,7 +116,9 @@ export function createShim(
       !isOneOf(INPUT_SOURCES, source) ||
       typeof player !== "number" ||
       !Number.isSafeInteger(player) ||
-      player < 1
+      player < 1 ||
+      // Each player number held is remembered until it's let go, so a cap keeps that bounded.
+      player > MAX_PLAYERS
     ) {
       reportBad("bad-input", preview(message));
       return;

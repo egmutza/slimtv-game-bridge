@@ -70,7 +70,7 @@ All three arrive as events on `window`.
 | `state` | `"down"` or `"up"`. |
 | `repeat` | `true` for an auto-repeat of a button that is still held, otherwise `false`. |
 | `source` | `"remote"` or `"gamepad"`. |
-| `player` | 1-based player number: a whole number, 1 or more. See [Players](#players). |
+| `player` | 1-based player number: a whole number from 1 to 16. See [Players](#players). |
 
 - **(added)** A repeat is always a `"down"` with `repeat: true`. It only follows an earlier
   `"down"` for the same action, source and player, and it doesn't change `isDown`.
@@ -107,6 +107,9 @@ All three arrive as events on `window`.
 - **(added)** When a controller disconnects, SlimTV first sends an "up" for every action it was
   holding, then frees its number. So with two controllers, unplugging player 1's controller and
   plugging it back in makes it player 1 again, and player 2 keeps its number throughout.
+- **(added)** Player numbers go up to 16. A controller that connects while all 16 are taken gets
+  no number and sends nothing until another controller disconnects and frees one. The shim
+  ignores input for a higher player number as a bad message.
 
 ## Input mapping (native side)
 
@@ -176,7 +179,7 @@ All three arrive as events on `window`.
 - Unknown message types are logged and ignored, never thrown.
 - **(added)** The same goes for messages that aren't valid JSON, are longer than 4096 characters,
   or have a field outside the values listed in this contract. For example, an `input` with
-  `action: "jump"`, `player: 0` or `player: 1.5` is ignored.
+  `action: "jump"`, `player: 0`, `player: 1.5` or `player: 17` is ignored.
 - **(added)** The shim logs each kind of bad message once per page load, to the browser console
   and to native as a `warn` log. That way a native bug shows up in logcat without flooding it.
 
@@ -213,7 +216,11 @@ because getting any of them wrong breaks a game in ways the page cannot detect o
   - Accept only the four types in "Shim to native", with exactly the fields shown. `level` must
     be one of the four levels, `bridge` and `message` must be strings, and a `message` longer
     than 2000 characters is ignored.
-  - Rate-limit `log` messages so a page can't flood logcat.
+  - **(added)** Rate-limit every message, whatever its type, not only `log`: count it against a
+    budget before parsing it, and drop it unparsed once the budget is spent. Messages arrive on
+    the app's main thread, the same thread that watches for the held-Back escape hatch, so a page
+    sending `hello`, `ready` or `exit` in a tight loop must not be able to keep that thread busy.
+    `log` messages also must not flood logcat.
 
 **Name clash**
 - The game WebView must never get the launcher's own `SlimTV` Java interface (its

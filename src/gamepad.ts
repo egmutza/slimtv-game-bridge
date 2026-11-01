@@ -4,6 +4,7 @@
 
 import {
   ACTIONS,
+  MAX_PLAYERS,
   STICK_PRESS,
   STICK_RELEASE,
   type Action,
@@ -64,7 +65,8 @@ export interface GamepadReader {
  * - A direction held by the D-pad and the stick together is one "down" and, when the last one
  *   lets go, one "up".
  * - The stick presses a direction at STICK_PRESS along its axis and releases below STICK_RELEASE.
- * - Each new controller takes the lowest free player number, starting at 1.
+ * - Each new controller takes the lowest free player number, starting at 1. One that would need a
+ *   number above MAX_PLAYERS is skipped, with one warning, until another controller goes away.
  * - A controller that goes away first reports an "up" for everything it held.
  * - Controllers without the browser's standard mapping are skipped, with one warning.
  * - Controllers never send repeats; games time their own from isDown.
@@ -75,6 +77,7 @@ export function createGamepadReader(
 ): GamepadReader {
   const pads = new Map<number, PadState>();
   let warnedMapping = false;
+  let warnedPlayers = false;
 
   const send = (action: Action, state: "down" | "up", player: number): void =>
     emit({ action, state, repeat: false, source: "gamepad", player });
@@ -113,7 +116,15 @@ export function createGamepadReader(
       for (const [index, pad] of present) {
         let state = pads.get(index);
         if (!state) {
-          state = { player: freePlayer(), stick: new Set(), held: new Set() };
+          const player = freePlayer();
+          if (player > MAX_PLAYERS) {
+            if (!warnedPlayers) {
+              warnedPlayers = true;
+              warn(`More than ${MAX_PLAYERS} controllers are connected; the extra ones are ignored.`);
+            }
+            continue;
+          }
+          state = { player, stick: new Set(), held: new Set() };
           pads.set(index, state);
         }
 
