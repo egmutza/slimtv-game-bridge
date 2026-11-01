@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Refuse history-destroying pushes.
+#
+# Why this exists: Codex's sandbox blocks all writes to .git by default, which
+# is what stops it committing at all. Opening .git so scripts/foreman-commit can
+# work also hands an agent running approval_policy = "never" the ability to
+# rewrite published history. Ordinary commits and fast-forward pushes are fine;
+# the two moves that lose work are what get blocked here.
+#
+# Detection is by shape, not by flag: a non-fast-forward push is one where the
+# remote's tip is not an ancestor of what is being sent. That catches --force,
+# --force-with-lease, and a force configured in .gitconfig alike, none of which
+# parsing the command line would reliably find.
+#
+# Scope: this catches mistakes, not a determined agent. See hooks/README.md.
+set -euo pipefail
+
+zero=$(git hash-object --stdin </dev/null | tr '[:xdigit:]' '0')
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deleting a remote branch: the local side is all zeros.
+  if [ "$local_sha" = "$zero" ]; then
+    echo "pre-push: refusing to delete remote branch $remote_ref" >&2
+    status=1
+    continue
+  fi
+
+  # Creating a new remote branch: nothing to overwrite, always safe.
+  if [ "$remote_sha" = "$zero" ]; then
+    continue
+  fi
+
+  # If the remote tip is unknown locally we cannot prove this is safe, so don't.
+  if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    echo "pre-push: remote tip $remote_sha for $remote_ref is unknown locally;" >&2
+    echo "          fetch first so this push can be checked" >&2
+    status=1
+    continue
+  fi
+
+  # The real test: fast-forward means the remote tip is an ancestor of ours.
+  if ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    echo "pre-push: refusing non-fast-forward push to $remote_ref" >&2
+    echo "          ${remote_sha:0:12} is not an ancestor of ${local_sha:0:12}," >&2
+    echo "          so this would discard commits already on the remote." >&2
+    status=1
+    continue
+  fi
+done
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: no refs were pushed." >&2
+  echo "          If you genuinely intend this, run the push yourself with --no-verify." >&2
+fi
+
+exit "$status"

@@ -1,0 +1,22 @@
+
+# Foreman starter: local secrets and agent settings
+*.key
+*.pem
+.env
+.env.*
+.claude/settings.local.json
+
+# Foreman scratch space (review diffs, uploads) -- never committed
+.foreman/
+
+# Local Python tooling
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node tooling. dist/ is committed on purpose (see README); site/ is the built test page.
+node_modules/
+site/
+coverage/

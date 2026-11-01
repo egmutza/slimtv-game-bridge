@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+# Ask the other coding tool for a clean, read-only review of uncommitted work.
+# The command is intentionally explicit about the originating tool: guessing
+# from an environment variable makes a review silently route to itself.
+#
+# Two things this is deliberate about:
+#
+#  1. The reviewer receives an exact diff, written to a file, instead of being
+#     told to go and find the changes itself. Otherwise two runs can review
+#     different scopes and neither result is reproducible.
+#  2. Falling back to the other tool happens only when the first tool is not
+#     installed. A reviewer that ran and returned REVISE may well exit nonzero;
+#     treating that as "try the other one" would throw away a real verdict and
+#     silently re-review with the tool that was supposed to be excluded.
+set -euo pipefail
+
+origin="${1:-}"
+case "$origin" in
+  claude) primary=codex;  fallback=claude ;;
+  codex)  primary=claude; fallback=codex  ;;
+  *) echo "usage: scripts/foreman-review <claude|codex>" >&2; exit 64 ;;
+esac
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# Scoped by $origin (which tool is asking), not shared across the whole repo.
+# A repo commonly has more than one live coding session pointed at the same
+# working directory at once (e.g. a Claude session and a Codex session both
+# open on it). A repo-wide scratch dir means one session's foreman-review
+# invocation can overwrite another's pid/output/diff files mid-run.
+# Confirmed live 2026-08-24 in `tuneslinger`: one session's own review
+# invocation clobbered another session's reviewer.pid, so its later status
+# check reported a confident but WRONG "confirmed failure" against the other
+# session's already-finished process, having never checked its own.
+scratch="$repo_root/.foreman/review/$origin"
+mkdir -p "$scratch"
+diff_file="$scratch/uncommitted.diff"
+
+# Tracked changes go in the diff. Untracked files are listed by name rather
+# than staged with --intent-to-add, which would mutate the caller's index.
+git diff HEAD -- > "$diff_file"
+untracked="$(git ls-files --others --exclude-standard)"
+
+if [ ! -s "$diff_file" ] && [ -z "$untracked" ]; then
+  echo "foreman-review: no uncommitted changes to review." >&2
+  exit 0
+fi
+
+prompt="Review this uncommitted work as a read-only code reviewer.
+
+The exact diff of tracked changes is in: $diff_file
+Read that file; do not reconstruct the diff yourself.
+
+Files not yet tracked by git (read each one directly):
+${untracked:-  (none)}
+
+Also read the project guidance (CLAUDE.md, AGENTS.md) and judge the change
+against it. Do not edit, commit, push, or run any command that changes state.
+Do not reproduce secrets or private user content in your report.
+
+End with APPROVED or REVISE, followed by findings ordered by severity."
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+run_claude() {
+  printf '%s' "$prompt" | claude -p --no-session-persistence \
+    --permission-mode dontAsk --tools "Read,Grep,Glob"
+}
+
+run_codex() {
+  # No --uncommitted: it is mutually exclusive with a prompt argument
+  # ("the argument '--uncommitted' cannot be used with '[PROMPT]'"), which
+  # made every Claude-to-Codex review exit 2 without reviewing anything.
+  # It was redundant anyway -- the prompt already names the exact diff file,
+  # which is the scope this script deliberately pins down.
+  #
+  # sandbox_mode is forced to read-only rather than left to the operator's
+  # config, which is workspace-write by default. Telling a reviewer in prose
+  # not to edit is a request; this is the enforcement. `codex review` has no
+  # --sandbox flag, so the config override is the way to set it.
+  codex review -c sandbox_mode=read-only "$prompt"
+}
+
+if have "$primary"; then
+  chosen="$primary"
+elif have "$fallback"; then
+  echo "foreman-review: $primary is not installed; falling back to a fresh" >&2
+  echo "                $fallback reviewer, which shares no context with this session." >&2
+  chosen="$fallback"
+else
+  echo "foreman-review: neither codex nor claude is installed." >&2
+  exit 69
+fi
+
+echo "foreman-review: sending $(wc -l < "$diff_file") diff lines to $chosen." >&2
+
+# A real review takes 30-120 seconds, longer if the VM is busy -- and Codex's
+# (and apparently Claude's) own tool calls do not reliably survive that long.
+# Confirmed live 2026-08-24: a bare `sleep 90`, run as a single Codex tool
+# call with nothing else involved, was killed at ~26 seconds. A review
+# launched the same way dies the same way, partway through, before it ever
+# writes a verdict -- no amount of smarter status-checking fixes that (tried
+# three times, same day): the process is genuinely dead, not merely out of
+# the caller's view. So rather than run the slow part here, hand it to
+# Foreman, which is a systemd service unrelated to and outliving any single
+# tool call -- a review it launches keeps running exactly as long as it
+# needs to, in a dedicated tmux session (review_runner.py). Skipped when we
+# already ARE that dedicated session: FOREMAN_REVIEW_WORKER=1 is what
+# review_runner.py sets when it spawns us, and handing off again would just
+# recurse.
+if [ -z "${FOREMAN_REVIEW_WORKER:-}" ]; then
+  # Foreman's project registry keys on the bare directory name under its own
+  # workspace (projects.resolve_repo), not a path -- the same identifier the
+  # dashboard itself uses, so basename here rather than the full $repo_root.
+  handoff="$(python3 - "$(basename "$repo_root")" "$origin" <<'PYEOF'
+import pathlib, socket, sys
+
+sock_path = pathlib.Path.home() / ".config" / "foreman" / "review.sock"
+repo_name, origin = sys.argv[1], sys.argv[2]
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(10)
+        s.connect(str(sock_path))
+        s.sendall(f"{repo_name}\t{origin}\n".encode())
+        print(s.recv(4096).decode(errors="replace").strip())
+except OSError as exc:
+    print(f"UNAVAILABLE {exc}")
+PYEOF
+  )"
+  case "$handoff" in
+    STARTED*|ALREADY_RUNNING*)
+      echo "foreman-review: $handoff" >&2
+      echo "foreman-review: Foreman is running this review in its own session," >&2
+      echo "                which is NOT subject to whatever limit killed the" >&2
+      echo "                sleep 90 above -- it will run to completion." >&2
+      echo "                Poll: scripts/foreman-review-status $origin" >&2
+      echo "                Trust only its exit code (0 = verdict ready, 1 =" >&2
+      echo "                genuinely failed, 2 = still running -- keep waiting" >&2
+      echo "                and re-run it, there is no fixed number of retries" >&2
+      echo "                that is always enough)." >&2
+      exit 0
+      ;;
+    *)
+      echo "foreman-review: could not hand off to Foreman ($handoff)." >&2
+      echo "                Running the review directly instead -- this CAN be" >&2
+      echo "                killed if your own tool call is cut off before it" >&2
+      echo "                finishes; check scripts/foreman-review-status $origin" >&2
+      echo "                if that happens rather than assuming a real failure." >&2
+      ;;
+  esac
+fi
+
+# The reviewer's output is teed to a file so this script can tell "reviewed and
+# said nothing" from "reviewed and approved". A reviewer that exits 0 with no
+# text is the failure mode that wastes the most time: it looks like a pass, and
+# every caller so far has read it as one.
+#
+# A heartbeat file, touched on disk every few seconds while the reviewer is
+# alive, is what a LATER, separate invocation of foreman-review-status checks
+# to tell "still running" from "genuinely dead" -- not a recorded PID. PIDs
+# do not reliably mean the same thing across two separate tool-call
+# invocations here: confirmed live 2026-08-24, this exact `> >(tee ...)` +
+# `$!` capture recorded suspiciously low PIDs (9, then 10) in two different
+# sandboxed tool calls in the same session, both later found "not running"
+# by a `kill -0` from a *different* tool call, even though a manual re-run
+# of the identical review from a plain shell completed normally minutes
+# later with a real APPROVED verdict. Most likely cause: each sandboxed
+# tool call gets its own private PID namespace, so a PID captured in one is
+# either invisible or coincidentally aliases an unrelated process (a live
+# low-numbered kernel thread, in both observed cases) when read from a
+# different one. A touch on shared storage carries no such ambiguity.
+output_file="$scratch/reviewer-output.txt"
+heartbeat_file="$scratch/reviewer.heartbeat"
+status=0
+# A previous run's verdict must not still be sitting in $output_file when
+# this one starts -- scripts/foreman-review-status checks $output_file
+# before it ever looks at the heartbeat, so a status check landing in the
+# gap between this line and the new reviewer's first write would otherwise
+# report the OLD verdict as if it were this run's. Confirmed live in
+# dungeoneye, 2026-09-25: the prior diff's verdict came back immediately,
+# then the real one about a minute later. Clearing it here, before the
+# heartbeat is (re)touched, closes the gap: a status check in that window
+# now sees no output and a fresh heartbeat, i.e. exit 2 (still running).
+rm -f "$output_file"
+touch "$heartbeat_file"
+"run_$chosen" > >(tee "$output_file") &
+reviewer_pid=$!
+# Deliberately not cleaned up with `kill`+`wait` on this loop's own pid: a
+# signal sent to a subshell currently blocked inside a foreground `sleep` is
+# deferred by bash until that sleep finishes on its own, which would tack a
+# spurious few seconds onto every single review (confirmed live: measured
+# 3.04s wall time for a mock reviewer that exits instantly). Left alone, the
+# loop notices the reviewer is gone on its own next `kill -0` check (at most
+# one heartbeat interval later) and exits by itself; disown just silences
+# the shell's own exit-time "Terminated" noise for the harmless orphan.
+(
+  while kill -0 "$reviewer_pid" 2>/dev/null; do
+    touch "$heartbeat_file"
+    sleep 3
+  done
+) &
+disown
+wait "$reviewer_pid" || status=$?
+# tee is fed through a pipe from the now-exited process; give it a moment to
+# flush its last buffered write rather than reading the file the instant the
+# reviewer itself exits.
+for _ in 1 2 3; do
+  [ -s "$output_file" ] && break
+  sleep 1
+done
+
+if [ ! -s "$output_file" ]; then
+  echo >&2
+  echo "foreman-review: $chosen exited $status and produced no review text." >&2
+  echo "                This is NOT an approval. Nothing was reviewed." >&2
+  echo >&2
+  echo "                This script itself waited (the wait builtin) for" >&2
+  echo "                $chosen's process to exit before checking the file, so this" >&2
+  echo "                is a CONFIRMED failure -- not a case of something leaving" >&2
+  echo "                before the reviewer finished." >&2
+  echo >&2
+  echo "                If instead your harness cut off THIS invocation of" >&2
+  echo "                foreman-review before you ever saw a message like this one," >&2
+  echo "                run scripts/foreman-review-status to find out for certain" >&2
+  echo "                whether the reviewer's heartbeat ($heartbeat_file) is still" >&2
+  echo "                being touched; do not guess from elapsed time or ps/pgrep." >&2
+  echo >&2
+  echo "                If that file is still empty minutes later, re-run the same" >&2
+  echo "                reviewer capturing what a bare run discards:" >&2
+  echo >&2
+  # One command per line, no continuations. A continuation escaped wrongly
+  # produces a garbled blob, and one dropped produces several commands that
+  # each fail -- either way the operator has to hand-repair the thing they
+  # were handed precisely because something already went wrong.
+  #
+  # Each branch names the same subcommand the reviewer actually ran. Pointing
+  # at a different one cannot reproduce the failure, and the fields to report
+  # differ: only claude -p emits a JSON envelope.
+  if [ "$chosen" = claude ]; then
+    envelope="$scratch/envelope.json"
+    echo "                  printf '%s' 'Review the diff in $diff_file' | claude -p --output-format json --no-session-persistence --permission-mode dontAsk --tools 'Read,Grep,Glob' > $envelope" >&2
+    # Filtered, not truncated: the envelope leads with token accounting, so a
+    # head -N buries the fields that explain the failure, and cutting a
+    # single-line JSON object at N bytes leaves it unparseable.
+    echo "                  python3 -m json.tool $envelope | grep -E 'subtype|terminal_reason|stop_reason|is_error|api_error_status|num_turns|permission_denials'" >&2
+    echo >&2
+    echo "                Report subtype, terminal_reason, stop_reason and" >&2
+    echo "                permission_denials rather than retrying blind." >&2
+  else
+    transcript="$scratch/codex-review.log"
+    echo "                  codex review -c sandbox_mode=read-only 'Review the diff in $diff_file' > $transcript 2>&1" >&2
+    echo "                  head -60 $transcript" >&2
+    echo >&2
+    echo "                codex review has no machine-readable output, so stdout" >&2
+    echo "                and stderr are captured together; report what it printed." >&2
+  fi
+  # Always 75 for an empty result, whatever the reviewer's own status was. The
+  # original is already reported in the message above; normalising here keeps
+  # the exit code deterministic for callers. Without this the code depends on a
+  # race: run_claude pipes the prompt into the reviewer, so a reviewer that
+  # exits before reading stdin kills printf with SIGPIPE and pipefail surfaces
+  # 141 instead -- same situation, different number, depending on scheduling.
+  status=75
+elif [ "$status" -ne 0 ]; then
+  echo >&2
+  echo "foreman-review: $chosen exited $status. If it printed a verdict above, that" >&2
+  echo "                verdict stands -- a nonzero exit is not a reason to re-run" >&2
+  echo "                the review with the other tool." >&2
+fi
+exit "$status"

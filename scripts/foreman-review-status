@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Answer one question about the most recent scripts/foreman-review run:
+# should the caller keep waiting, or is it actually done?
+#
+# This exists because that question used to be answered by guessing --
+# eyeballing elapsed time, or `pgrep -f 'claude|foreman-review'` (which also
+# matches unrelated processes, including this very check). A caller with no
+# reliable answer gives up too early on a review that is simply slow, e.g.
+# because the VM is also busy compiling something else at the same time.
+#
+# Exit codes are the whole interface -- text is for humans, control flow
+# should branch on the number:
+#   0  a verdict is ready and has been printed (APPROVED or REVISE, findings)
+#   1  the reviewer has genuinely exited and wrote nothing -- a real failure
+#   2  the reviewer is still running -- NOT a failure, keep waiting and re-run
+#      this command; there is no fixed number of retries that is always
+#      enough, so do not treat repeated 2s as an eventual 1
+#   3  no review has been started (no heartbeat file yet)
+#
+# Takes the same <claude|codex> argument as scripts/foreman-review -- pass
+# the tool YOU are running in, same as you passed it there. This is not
+# cosmetic: the scratch dir is scoped per tool precisely because more than
+# one coding session can be open on the same repo at once, and checking the
+# wrong tool's scratch dir means checking someone else's review.
+#
+# Liveness is judged by a heartbeat file's mtime, NOT by checking a recorded
+# PID with `kill -0`. Confirmed live 2026-08-24: a real review, run through
+# two separate sandboxed tool calls, recorded suspiciously low PIDs (9, then
+# 10) that a `kill -0` from a *different* tool call reported as "not
+# running" -- even though a manual re-run of the identical review from a
+# plain shell completed normally minutes later with a real APPROVED
+# verdict. Most likely cause: each sandboxed tool call gets its own private
+# PID namespace, so a PID captured in one either is invisible to, or
+# coincidentally aliases some unrelated process (a live low-numbered kernel
+# thread, in both observed cases) in, a check made from a different one. A
+# touch on shared storage carries no such ambiguity.
+set -euo pipefail
+
+origin="${1:-}"
+case "$origin" in
+  claude|codex) ;;
+  *)
+    echo "usage: scripts/foreman-review-status <claude|codex>" >&2
+    echo "       name the tool you are running IN -- the same argument you" >&2
+    echo "       gave scripts/foreman-review for this review." >&2
+    exit 64 ;;
+esac
+
+repo_root="$(git rev-parse --show-toplevel)"
+scratch="$repo_root/.foreman/review/$origin"
+output_file="$scratch/reviewer-output.txt"
+heartbeat_file="$scratch/reviewer.heartbeat"
+
+# A real verdict is unambiguous regardless of heartbeat freshness -- the
+# heartbeat loop only touches its file every few seconds, so it can look
+# briefly "stale" in the instant right after a reviewer finishes normally,
+# even though the output that just landed is completely real.
+if [ -s "$output_file" ]; then
+  cat "$output_file"
+  exit 0
+fi
+
+if [ ! -f "$heartbeat_file" ]; then
+  echo "foreman-review-status: no review has been started for $origin ($heartbeat_file not found)." >&2
+  exit 3
+fi
+
+now="$(date +%s)"
+last_beat="$(stat -c %Y "$heartbeat_file")"
+age=$((now - last_beat))
+
+# The heartbeat loop touches this file roughly every 3s while the reviewer
+# is alive. A few multiples of that interval is generous slack for
+# scheduling jitter without so much slack that a genuinely-dead reviewer
+# reads as live for long.
+if [ "$age" -le 9 ]; then
+  echo "foreman-review-status: reviewer is still running (heartbeat ${age}s old)." >&2
+  echo "                       This is NOT a failure -- no verdict yet because it" >&2
+  echo "                       is not done yet. A busy VM (another build, another" >&2
+  echo "                       review) can push this well past the usual 30-120s." >&2
+  echo "                       Wait, then re-run this exact command; do not report" >&2
+  echo "                       an outcome until it exits 0 or 1." >&2
+  exit 2
+fi
+
+# The heartbeat has gone stale and there is still no output. Give tee a
+# brief grace period in case the reviewer finished in the gap between the
+# heartbeat check above and now, rather than reading output the instant the
+# heartbeat looks stale.
+for _ in 1 2 3 4 5; do
+  [ -s "$output_file" ] && break
+  sleep 1
+done
+
+if [ -s "$output_file" ]; then
+  cat "$output_file"
+  exit 0
+else
+  echo "foreman-review-status: reviewer's heartbeat went stale (${age}s old) with no" >&2
+  echo "                       output written. This IS a real failure, confirmed --" >&2
+  echo "                       not a timing artifact." >&2
+  exit 1
+fi

@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Edit(./**) covers every file-editing tool, Write and MultiEdit included.",
+    "Naming those separately does nothing: only Edit(path) rules are consulted",
+    "by file permission checks, so Write(./**) and MultiEdit(./**) were inert",
+    "and Claude Code warned about them on every start.",
+    "Bash is allow-listed to read-only inspection rather than granted wholesale.",
+    "A Bash deny-list cannot protect a file: 'cat secret' is one spelling among",
+    "head, tail, less, xxd, awk, python -c and a shell redirect, so denying cat",
+    "buys the appearance of protection and not the fact of it. Anything absent",
+    "from this list prompts instead, which is the actual control."
+  ],
+  "permissions": {
+    "allow": [
+      "Read(./**)", "Glob", "Grep",
+      "Edit(./**)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
+      "Bash(git show:*)", "Bash(git rev-parse:*)", "Bash(git remote -v)",
+      "Bash(git branch --list:*)",
+      "Bash(ls:*)", "Bash(pwd)", "Bash(wc:*)", "Bash(file:*)", "Bash(rg:*)"
+    ],
+    "deny": [
+      "Read(./**/*.key)", "Read(./**/*.pem)", "Read(**/.env*)"
+    ],
+    "ask": [
+      "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git reset --hard*)",
+      "Bash(git clean -f*)", "Bash(git branch -D*)", "Bash(git commit --no-verify*)",
+      "Bash(git push --no-verify*)", "Bash(rm *)"
+    ],
+    "defaultMode": "plan"
+  },
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+      "hooks": [{"type": "command", "command": ".claude/hooks/scan-secrets.sh"}]
+    }]
+  }
+}

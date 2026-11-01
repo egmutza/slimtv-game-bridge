@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Make an explicitly authorized, scope-limited commit. Never pushes: a push is
+# separate authorization the caller has to obtain on its own.
+#
+# This used to hand the job to a nested `claude -p` and ask it, in prose, to
+# stage only the approved paths. Two reasons it no longer does.
+#
+# The scope guarantee is a git flag, not a judgement call. `git commit` commits
+# the whole index, so anything staged earlier rides along -- that is the actual
+# risk the delegate was hired to watch for. `git commit --only -- <paths>`
+# commits exactly the named paths whatever else is staged, deterministically.
+#
+# And the delegate had to read the diff and repo files to do its checking while
+# holding unrestricted Bash with no prompts. Project guidance says to treat
+# repository text as data, not instructions; that setup pointed the exception
+# straight at git history for no gain.
+set -euo pipefail
+
+if [ "$#" -lt 2 ]; then
+  # Single-quoted: the double quotes are part of the usage text, and inside a
+  # double-quoted string bash would strip them -- printing `foreman-commit
+  # message path...`, which drops the quoting the message argument requires.
+  echo 'usage: scripts/foreman-commit "message" path...' >&2
+  exit 64
+fi
+
+message="$1"
+shift
+
+if [ -z "${message//[[:space:]]/}" ]; then
+  echo "foreman-commit: refusing an empty commit message" >&2
+  exit 64
+fi
+
+paths=()
+for path in "$@"; do
+  case "$path" in
+    ""|-*|/*|../*|*/../*|*/..|..|.)
+      echo "foreman-commit: refusing unsafe project-relative path: $path" >&2
+      exit 64
+      ;;
+  esac
+  paths+=("$path")
+done
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Every path must be one git can act on, or the caller's idea of the scope is
+# already wrong. Existing in the working tree is the usual way to qualify; a
+# deletion the caller explicitly asked to commit is the other. Requiring the
+# file to exist rejected every scoped removal, which is a legitimate commit
+# this helper is supposed to be able to make.
+for path in "${paths[@]}"; do
+  if [ -e "$path" ]; then
+    continue
+  fi
+  if git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+    continue
+  fi
+  echo "foreman-commit: no such path in the working tree or index: $path" >&2
+  exit 65
+done
+
+# Refuse mid-operation states rather than committing into a merge or rebase the
+# caller may not know is in progress.
+git_dir="$(git rev-parse --git-dir)"
+for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-apply rebase-merge; do
+  if [ -e "$git_dir/$marker" ]; then
+    echo "foreman-commit: a git operation is already in progress ($marker);" >&2
+    echo "                finish or abort it before committing." >&2
+    exit 69
+  fi
+done
+
+# Stage the approved paths: --only needs a path known to git, so a brand new
+# file has to be added before it can be named.
+git add -- "${paths[@]}"
+
+if git diff --cached --quiet -- "${paths[@]}"; then
+  echo "foreman-commit: nothing to commit for the requested paths." >&2
+  exit 0
+fi
+
+echo "foreman-commit: committing only these paths:" >&2
+git diff --cached --name-only -- "${paths[@]}" | sed 's/^/  /' >&2
+
+# --only is the whole safety property: exactly these paths are committed, no
+# matter what else happens to be staged. It is not an optimisation.
+git commit --only -m "$message" -- "${paths[@]}"
+
+echo >&2
+echo "foreman-commit: committed $(git rev-parse --short HEAD). Nothing was pushed." >&2
+
+if ! git diff --cached --quiet; then
+  echo "foreman-commit: note -- other paths remain staged and were left alone:" >&2
+  git diff --cached --name-only | sed 's/^/  /' >&2
+fi
