@@ -64,6 +64,7 @@ function countEvent(): void {
 
 const input = createInput();
 input.on((d: InputDetail) => {
+  queueDraw();
   countEvent();
   addLog(`${d.action.padEnd(8)} ${d.state.padEnd(4)} ${d.repeat ? "repeat" : "      "} ${d.source.padEnd(7)} p${d.player}`);
   if (d.state !== "down") return;
@@ -83,8 +84,14 @@ onResume(() => {
 });
 
 // ----- Held-now grid --------------------------------------------------------------------------
+// Redrawn only when an input or a pause could have changed it, at most once a frame, and only the
+// cells that changed. This page measures the TV, so it must not keep the TV busy while idle. The
+// window's own slimtv:* events are heard as well as the kit's handler: the kit doesn't pass on the
+// "up" for a button that was already held when the page loaded, and the grid would keep it down.
 
 const PLAYERS = [1, 2, 3, 4];
+/** The grid's columns: any player, then each player. */
+const COLUMNS = [undefined, ...PLAYERS];
 const grid = $<HTMLTableElement>("grid");
 const head = grid.insertRow();
 for (const label of ["Action", "Any", ...PLAYERS.map((p) => `P${p}`)]) {
@@ -95,20 +102,32 @@ for (const label of ["Action", "Any", ...PLAYERS.map((p) => `P${p}`)]) {
 const cells = ACTIONS.map((action) => {
   const tr = grid.insertRow();
   tr.insertCell().textContent = action;
-  return { action, cells: [undefined, ...PLAYERS].map(() => tr.insertCell()) };
+  return { action, row: COLUMNS.map(() => ({ cell: tr.insertCell(), held: false })) };
 });
 function drawGrid(): void {
-  for (const { action, cells: row } of cells) {
-    [undefined, ...PLAYERS].forEach((player, i) => {
-      const held = input.isDown(action, player);
-      const cell = row[i]!;
-      cell.className = held ? "held" : "";
-      cell.textContent = held ? "down" : "";
-    });
+  for (const { action, row } of cells) {
+    for (let i = 0; i < COLUMNS.length; i++) {
+      const entry = row[i]!;
+      const held = input.isDown(action, COLUMNS[i]);
+      if (held === entry.held) continue;
+      entry.held = held;
+      entry.cell.className = held ? "held" : "";
+      entry.cell.textContent = held ? "down" : "";
+    }
   }
-  requestAnimationFrame(drawGrid);
 }
-requestAnimationFrame(drawGrid);
+let drawQueued = false;
+function queueDraw(): void {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => {
+    drawQueued = false;
+    drawGrid();
+  });
+}
+drawGrid();
+addEventListener("slimtv:input", queueDraw);
+addEventListener("slimtv:pause", queueDraw);
 
 // ----- Buttons and focus ----------------------------------------------------------------------
 

@@ -29,6 +29,13 @@ on GitHub, "Do not allow force pushes" and "Do not allow deletions" on the
 default branch. That is enforced server-side, so nothing running on this VM can
 circumvent it.
 
+This repo has two such rulesets on GitHub, with no one allowed to bypass them:
+"Protect main" blocks force pushes to and deletion of the default branch, and
+"Release tags are permanent" blocks moving or deleting any tag. Games and SlimTV
+install by release tag, so a moved tag would hand them different code. New tags
+can still be created. To redo a release, pick a new name rather than moving the
+old tag.
+
 Local damage stays recoverable from `git reflog` for around 30 days; a
 force-push that lands on the remote is far harder to walk back. That asymmetry
 is why the server-side rule matters more than this hook.

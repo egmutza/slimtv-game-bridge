@@ -16,6 +16,11 @@
 # straight at git history for no gain.
 set -euo pipefail
 
+# Every path is a literal file or directory name, never a git pattern. Without
+# this, `*` and `:/` are match-everything pathspecs: both pass the checks below
+# and then commit every change in the repo, new files included.
+export GIT_LITERAL_PATHSPECS=1
+
 if [ "$#" -lt 2 ]; then
   # Single-quoted: the double quotes are part of the usage text, and inside a
   # double-quoted string bash would strip them -- printing `foreman-commit
@@ -44,6 +49,20 @@ for path in "$@"; do
 done
 
 cd "$(git rev-parse --show-toplevel)"
+
+# The prefix checks above can't see every way to spell the whole repo or a
+# path outside it: `./`, `./.`, `.//`, `src/..` and so on. Resolve each path
+# as written (-s: symlinks left alone, -m: it need not exist) and refuse the
+# repo root itself and anything above it.
+for path in "${paths[@]}"; do
+  resolved="$(realpath -sm --relative-to=. -- "$path")"
+  case "$resolved" in
+    .|..|../*)
+      echo "foreman-commit: refusing a path that is the whole repo or outside it: $path" >&2
+      exit 64
+      ;;
+  esac
+done
 
 # Every path must be one git can act on, or the caller's idea of the scope is
 # already wrong. Existing in the working tree is the usual way to qualify; a
