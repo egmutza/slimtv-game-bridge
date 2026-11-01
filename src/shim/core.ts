@@ -15,11 +15,12 @@ import {
   type Action,
   type DeviceInfo,
   type InputDetail,
-  type InputSource,
   type LogLevel,
   type ShimToNativeMessage,
   type SlimTVApi,
 } from "../contract";
+import { createHeld } from "../held";
+import { isShimObject, SHIM_MARK } from "../mark";
 import { RELEASE_NAME } from "../release";
 
 /** The page's window, including its globals (console, CustomEvent). */
@@ -33,11 +34,7 @@ export interface ShimTransport {
   listen(onMessage: (data: unknown) => void): void;
 }
 
-/**
- * Marks a window.SlimTV object as one this shim created. Symbol.for is shared across every
- * script in the page, so two separate copies of the shim recognize each other.
- */
-export const SHIM_MARK = Symbol.for("slimtv-game-bridge.shim");
+export { SHIM_MARK };
 
 const PREFIX = `[SlimTV ${RELEASE_NAME}]`;
 
@@ -78,10 +75,7 @@ export function createShim(
   };
 
   if ("SlimTV" in win) {
-    const existing: unknown = win.SlimTV;
-    const ours =
-      typeof existing === "object" && existing !== null && SHIM_MARK in existing;
-    if (!ours) {
+    if (!isShimObject(win.SlimTV)) {
       const text =
         "window.SlimTV already exists and was not created by the shim, so the bridge is off. " +
         "Is the launcher's SlimTV interface attached to the game WebView?";
@@ -96,11 +90,7 @@ export function createShim(
     console.warn(PREFIX, "SlimTVNative is missing, so nothing reaches SlimTV.");
   }
 
-  // Held buttons, one entry per action, source and player. isDown is true while any entry for
-  // the action (and player, if given) is present.
-  const held = new Map<string, { action: Action; player: number }>();
-  const key = (action: Action, source: InputSource, player: number): string =>
-    `${action}|${source}|${player}`;
+  const held = createHeld();
 
   const reported = new Set<BadKind>();
   const reportBad = (kind: BadKind, detail: string): void => {
@@ -131,23 +121,13 @@ export function createShim(
       return;
     }
 
-    // Only changes are passed on: a down for a held button, an up for one that isn't held, or
-    // a repeat of one that isn't held is dropped. This keeps a stray "up" after a pause (whose
-    // "down" the shim already forgot) from reaching the game.
-    const k = key(action, source, player);
-    const isHeld = held.has(k);
-    if (state === "down") {
-      if (isHeld !== repeat) return;
-      held.set(k, { action, player });
-    } else {
-      if (!isHeld) return;
-      held.delete(k);
-    }
-
     const detail: InputDetail =
       state === "down"
         ? { action, state, repeat, source, player }
         : { action, state, repeat: false, source, player };
+    // Only changes are passed on. This keeps, for example, a stray "up" after a pause (whose
+    // "down" the shim already forgot) from reaching the game.
+    if (!held.apply(detail)) return;
     dispatch(INPUT_EVENT, Object.freeze(detail));
   };
 
@@ -212,12 +192,7 @@ export function createShim(
     },
     input: Object.freeze({
       isDown(action: Action, player?: number): boolean {
-        for (const entry of held.values()) {
-          if (entry.action === action && (player === undefined || entry.player === player)) {
-            return true;
-          }
-        }
-        return false;
+        return held.isDown(action, player);
       },
     }),
   };

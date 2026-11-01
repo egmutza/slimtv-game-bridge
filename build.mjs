@@ -3,8 +3,10 @@
 // games and SlimTV install it with no build step (see CLAUDE.md), so it must never go stale.
 
 import { build } from "esbuild";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 
 const check = process.argv.includes("--check");
 
@@ -42,7 +44,49 @@ if (shimFile.contents.length > SHIM_MAX_BYTES) {
 }
 outputs.push({ path: "dist/slimtv-shim.js", text: shimFile.text });
 
+// The kit: one readable ES module for games to import.
+const kit = await build({
+  entryPoints: ["src/kit/index.ts"],
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  platform: "browser",
+  charset: "utf8",
+  legalComments: "none",
+  write: false,
+  outfile: "dist/kit.js",
+  banner: {
+    js:
+      `// slimtv-game-bridge kit, release ${name} (tag ${tag}).\n` +
+      "// Built from src/kit by build.mjs; do not edit.",
+  },
+});
+outputs.push({ path: "dist/kit.js", text: kit.outputFiles[0].text });
+
+// The kit's TypeScript declarations, from tsc (tsconfig.build.json), into dist/types/.
+const typesDir = await mkdtemp(join(tmpdir(), "slimtv-game-bridge-types-"));
+try {
+  execFileSync("npx", ["tsc", "-p", "tsconfig.build.json", "--outDir", typesDir], { stdio: "inherit" });
+  for (const file of await listFiles(typesDir)) {
+    outputs.push({ path: join("dist/types", relative(typesDir, file)), text: await readFile(file, "utf8") });
+  }
+} finally {
+  await rm(typesDir, { recursive: true, force: true });
+}
+
 let stale = 0;
+const expected = new Set(outputs.map((o) => o.path));
+const existing = await listFiles("dist").catch(() => []);
+for (const path of existing) {
+  if (expected.has(path)) continue;
+  if (check) {
+    console.error(`check:dist: ${path} is no longer built. Run npm run build and commit the result.`);
+    stale++;
+  } else {
+    await rm(path);
+    console.log(`build: removed ${path}`);
+  }
+}
 for (const { path, text } of outputs) {
   if (check) {
     const current = await readFile(path, "utf8").catch(() => null);
@@ -58,3 +102,13 @@ for (const { path, text } of outputs) {
 }
 if (stale) process.exit(1);
 if (check) console.log("check:dist: dist/ matches the source.");
+
+async function listFiles(dir) {
+  const files = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...(await listFiles(path)));
+    else files.push(path);
+  }
+  return files;
+}

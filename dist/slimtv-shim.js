@@ -23,11 +23,46 @@
   var RESUME_EVENT = "slimtv:resume";
   var MAX_MESSAGE_LENGTH = 4096;
 
+  // src/held.ts
+  function createHeld() {
+    const held = /* @__PURE__ */ new Map();
+    return {
+      apply({ action, state, repeat, source, player }) {
+        const key = `${action}|${source}|${player}`;
+        const isHeld = held.has(key);
+        if (state === "down") {
+          if (isHeld !== repeat) return false;
+          held.set(key, { action, player });
+        } else {
+          if (!isHeld) return false;
+          held.delete(key);
+        }
+        return true;
+      },
+      isDown(action, player) {
+        for (const entry of held.values()) {
+          if (entry.action === action && (player === void 0 || entry.player === player)) {
+            return true;
+          }
+        }
+        return false;
+      },
+      clear() {
+        held.clear();
+      }
+    };
+  }
+
+  // src/mark.ts
+  var SHIM_MARK = /* @__PURE__ */ Symbol.for("slimtv-game-bridge.shim");
+  function isShimObject(value) {
+    return typeof value === "object" && value !== null && SHIM_MARK in value;
+  }
+
   // src/release.ts
   var RELEASE_NAME = "Steady Heron";
 
   // src/shim/core.ts
-  var SHIM_MARK = /* @__PURE__ */ Symbol.for("slimtv-game-bridge.shim");
   var PREFIX = `[SlimTV ${RELEASE_NAME}]`;
   function createShim(win, transport, device) {
     const console2 = win.console;
@@ -49,9 +84,7 @@
       send({ type: "log", level, message });
     };
     if ("SlimTV" in win) {
-      const existing = win.SlimTV;
-      const ours = typeof existing === "object" && existing !== null && SHIM_MARK in existing;
-      if (!ours) {
+      if (!isShimObject(win.SlimTV)) {
         const text = "window.SlimTV already exists and was not created by the shim, so the bridge is off. Is the launcher's SlimTV interface attached to the game WebView?";
         console2.error(PREFIX, text);
         send({ type: "hello", bridge: RELEASE_NAME });
@@ -62,8 +95,7 @@
     if (!transport) {
       console2.warn(PREFIX, "SlimTVNative is missing, so nothing reaches SlimTV.");
     }
-    const held = /* @__PURE__ */ new Map();
-    const key = (action, source, player) => `${action}|${source}|${player}`;
+    const held = createHeld();
     const reported = /* @__PURE__ */ new Set();
     const reportBad = (kind, detail) => {
       if (reported.has(kind)) return;
@@ -81,16 +113,8 @@
         reportBad("bad-input", preview(message));
         return;
       }
-      const k = key(action, source, player);
-      const isHeld = held.has(k);
-      if (state === "down") {
-        if (isHeld !== repeat) return;
-        held.set(k, { action, player });
-      } else {
-        if (!isHeld) return;
-        held.delete(k);
-      }
       const detail = state === "down" ? { action, state, repeat, source, player } : { action, state, repeat: false, source, player };
+      if (!held.apply(detail)) return;
       dispatch(INPUT_EVENT, Object.freeze(detail));
     };
     const receive = (data) => {
@@ -151,12 +175,7 @@
       },
       input: Object.freeze({
         isDown(action, player) {
-          for (const entry of held.values()) {
-            if (entry.action === action && (player === void 0 || entry.player === player)) {
-              return true;
-            }
-          }
-          return false;
+          return held.isDown(action, player);
         }
       })
     };

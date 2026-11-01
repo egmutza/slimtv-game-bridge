@@ -12,6 +12,20 @@
   "engines": {
     "node": ">=22.12"
   },
+  "main": "./dist/kit.js",
+  "module": "./dist/kit.js",
+  "types": "./dist/types/kit/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/kit/index.d.ts",
+      "import": "./dist/kit.js",
+      "default": "./dist/kit.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CONTRACT.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
