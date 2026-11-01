@@ -85,12 +85,16 @@ describe("gamepad reader", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("releases everything on releaseAll", () => {
+  it("releases held buttons on releaseHeld but keeps player numbers", () => {
     const { reader, brief } = setup();
-    reader.read([pad(0, { buttons: [0] }), pad(1, { buttons: [12] })]);
+    reader.read([pad(0), pad(1, { buttons: [12] })]);
+    reader.read([null, pad(1, { buttons: [12], axes: [0, -1] })]);
     brief();
-    reader.releaseAll();
-    expect(brief()).toEqual(["confirm up p1", "up up p2"]);
+    reader.releaseHeld();
+    expect(brief()).toEqual(["up up p2"]);
+    // Still pressed: a fresh down on the next read, still player 2.
+    reader.read([null, pad(1, { buttons: [12] })]);
+    expect(brief()).toEqual(["up down p2"]);
   });
 
   it("never sends repeats", () => {

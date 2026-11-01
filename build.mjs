@@ -63,6 +63,31 @@ const kit = await build({
 });
 outputs.push({ path: "dist/kit.js", text: kit.outputFiles[0].text });
 
+// The fake bridge, for trying a game in TV mode on a computer: the module itself, and the entry
+// that installs it when the address asks for it.
+for (const [entry, out, what] of [
+  ["src/fake/index.ts", "dist/fake.js", "fake bridge"],
+  ["src/fake/auto.ts", "dist/fake-auto.js", "fake bridge auto-install entry"],
+]) {
+  const result = await build({
+    entryPoints: [entry],
+    bundle: true,
+    format: "esm",
+    target: "es2022",
+    platform: "browser",
+    charset: "utf8",
+    legalComments: "none",
+    write: false,
+    outfile: out,
+    banner: {
+      js:
+        `// slimtv-game-bridge ${what}, release ${name} (tag ${tag}).\n` +
+        "// For trying a game on a computer; inside SlimTV it does nothing. Built by build.mjs; do not edit.",
+    },
+  });
+  outputs.push({ path: out, text: result.outputFiles[0].text });
+}
+
 // The kit's TypeScript declarations, from tsc (tsconfig.build.json), into dist/types/.
 const typesDir = await mkdtemp(join(tmpdir(), "slimtv-game-bridge-types-"));
 try {

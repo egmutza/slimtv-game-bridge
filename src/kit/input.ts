@@ -2,8 +2,11 @@
 // SlimTV's slimtv:input events (the remote and controllers arrive through the bridge). Anywhere
 // else it reads the keyboard and controllers itself, following the same rules.
 
-import { ACTIONS, type Action, type InputDetail } from "../contract";
-import { createGamepadReader, type GamepadLike } from "../gamepad";
+import type { Action, InputDetail } from "../contract";
+import { createGamepadReader } from "../gamepad";
+import { watchGamepads } from "../gamepadLoop";
+import { createKeyboard } from "../keyboard";
+import { mergeInputs } from "../merge";
 import { createHeld } from "../held";
 import { RELEASE_NAME } from "../release";
 import { DEFAULT_KEYMAP, type Keymap } from "./keymap";
@@ -58,8 +61,9 @@ const PREFIX = `[SlimTV kit ${RELEASE_NAME}]`;
 
 /**
  * Creates the input layer. It adds listeners only when called, so a game that wants desktop and
- * phone play untouched can call it only when isSlimTV() is true. Keyboard input on a computer is
- * reported as source "remote", player 1, since the keyboard stands in for the remote.
+ * phone play untouched can call it only when isSlimTV() is true. On a computer the keyboard is
+ * player 1: keys for the remote's actions come from the remote, and keys for menu, action1 and
+ * action2, which only controllers have, come from the first controller (see REMOTE_ACTIONS).
  */
 export function createInput(options: InputOptions = {}): GameInput {
   const handlers = new Set<InputHandler>();
@@ -158,114 +162,24 @@ export function createInput(options: InputOptions = {}): GameInput {
     };
   }
 
-  // Keyboard. Several keys can share an action: it goes down with the first and up with the last.
-  const actionForKey = new Map<string, Action>();
-  for (const action of ACTIONS) {
-    for (const code of (options.keymap ?? DEFAULT_KEYMAP)[action] ?? []) {
-      if (!actionForKey.has(code)) actionForKey.set(code, action);
-    }
-  }
+  // Keyboard, as player 1. Keys released while the window is in the background never send
+  // keyup, so losing focus releases them.
   const preventDefault = options.preventDefault !== false;
-  const keysDown = new Map<Action, Set<string>>();
-  const keyboard = (action: Action, state: "down" | "up", repeat = false): void =>
-    deliver(
-      state === "down"
-        ? { action, state, repeat, source: "remote", player: 1 }
-        : { action, state, repeat: false, source: "remote", player: 1 },
-    );
-  // Keys released while the window is in the background, or while Cmd is held on a Mac, never
-  // send keyup, so all held keys are released then.
-  const releaseKeys = (): void => {
-    for (const [action, codes] of keysDown) {
-      if (codes.size === 0) continue;
-      codes.clear();
-      keyboard(action, "up");
-    }
-  };
-
-  listen("keydown", (event) => {
-    if (event.metaKey) {
-      releaseKeys();
-      return;
-    }
-    if (event.ctrlKey || event.altKey || isEditable(event)) return;
-    const action = actionForKey.get(event.code);
-    if (!action) return;
+  // Keys and controllers can hold the same button (keys for controller-only buttons count as the
+  // first controller), so their input is merged first.
+  const from = mergeInputs(deliver);
+  const keyboard = createKeyboard(options.keymap ?? DEFAULT_KEYMAP, from("keyboard"), (event) => {
     if (preventDefault) event.preventDefault();
-    const codes = keysDown.get(action) ?? new Set<string>();
-    keysDown.set(action, codes);
-    if (codes.has(event.code)) {
-      if (event.repeat) keyboard(action, "down", true);
-      return;
-    }
-    codes.add(event.code);
-    if (codes.size === 1) keyboard(action, "down");
   });
-  listen("keyup", (event) => {
-    const action = actionForKey.get(event.code);
-    const codes = action && keysDown.get(action);
-    if (!action || !codes?.delete(event.code)) return;
-    if (preventDefault) event.preventDefault();
-    if (codes.size === 0) keyboard(action, "up");
-  });
-  listen("blur", releaseKeys);
+  listen("keydown", keyboard.keydown);
+  listen("keyup", keyboard.keyup);
+  listen("blur", keyboard.releaseAll);
 
-  // Controllers, read once per animation frame while any is connected and the window has focus.
-  // Losing focus releases everything they hold, like the keyboard; regaining it reads them again.
-  if (options.gamepads !== false && typeof navigator !== "undefined" && navigator.getGamepads) {
-    const reader = createGamepadReader(deliver, (text) => console.warn(PREFIX, text));
-    let frame = 0;
-    let blocked = false;
-    let away = false;
-    const tick = (): void => {
-      frame = 0;
-      if (disposed || blocked || away) return;
-      let pads: (GamepadLike | null)[];
-      try {
-        pads = [...navigator.getGamepads()];
-      } catch (error) {
-        // For example a page whose Permissions-Policy blocks the gamepad feature.
-        blocked = true;
-        console.warn(PREFIX, "controllers can't be read here, so they are ignored.", error);
-        return;
-      }
-      reader.read(pads);
-      if (!disposed && pads.some((pad) => pad?.connected)) frame = requestAnimationFrame(tick);
-    };
-    const start = (): void => {
-      if (!frame && !disposed && !blocked && !away) frame = requestAnimationFrame(tick);
-    };
-    const stop = (): void => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = 0;
-    };
-    listen("gamepadconnected", start);
-    listen("gamepaddisconnected", start);
-    listen("blur", () => {
-      away = true;
-      stop();
-      reader.releaseAll();
-    });
-    listen("focus", () => {
-      away = false;
-      start();
-    });
-    start();
-    cleanups.push(stop);
+  // Controllers, read each frame while any is connected and the window has focus.
+  if (options.gamepads !== false) {
+    const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX, text));
+    cleanups.push(watchGamepads(reader, (text, error) => console.warn(PREFIX, text, error)));
   }
 
   return { mode: "desktop", ...base, isDown };
-}
-
-/** True when a key event comes from a text box, including one inside a web component. */
-function isEditable(event: Event): boolean {
-  if (typeof HTMLElement === "undefined") return false;
-  const target = event.composedPath?.()[0] ?? event.target;
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  );
 }

@@ -147,8 +147,12 @@ function createGamepadReader(emit, warn) {
         }
       }
     },
-    releaseAll() {
-      for (const index of [...pads.keys()]) release(index);
+    releaseHeld() {
+      for (const pad of pads.values()) {
+        for (const action of ACTIONS) if (pad.held.has(action)) send(action, "up", pad.player);
+        pad.held.clear();
+        pad.stick.clear();
+      }
     }
   };
 }
@@ -165,6 +169,149 @@ var DEFAULT_KEYMAP = {
   action1: ["KeyZ"],
   action2: ["KeyX"]
 };
+
+// src/gamepadLoop.ts
+function watchGamepads(reader, warn) {
+  if (typeof window === "undefined" || typeof navigator === "undefined" || !navigator.getGamepads) {
+    return () => {
+    };
+  }
+  let frame = 0;
+  let stopped = false;
+  let blocked = false;
+  let away = false;
+  const tick = () => {
+    frame = 0;
+    if (stopped || blocked || away) return;
+    let pads;
+    try {
+      pads = [...navigator.getGamepads()];
+    } catch (error) {
+      blocked = true;
+      warn("controllers can't be read here, so they are ignored.", error);
+      return;
+    }
+    reader.read(pads);
+    if (!stopped && pads.some((pad) => pad?.connected)) frame = requestAnimationFrame(tick);
+  };
+  const start = () => {
+    if (!frame && !stopped && !blocked && !away) frame = requestAnimationFrame(tick);
+  };
+  const cancel = () => {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+  };
+  const onBlur = () => {
+    away = true;
+    cancel();
+    reader.releaseHeld();
+  };
+  const onFocus = () => {
+    away = false;
+    start();
+  };
+  window.addEventListener("gamepadconnected", start);
+  window.addEventListener("gamepaddisconnected", start);
+  window.addEventListener("blur", onBlur);
+  window.addEventListener("focus", onFocus);
+  start();
+  return () => {
+    stopped = true;
+    cancel();
+    window.removeEventListener("gamepadconnected", start);
+    window.removeEventListener("gamepaddisconnected", start);
+    window.removeEventListener("blur", onBlur);
+    window.removeEventListener("focus", onFocus);
+  };
+}
+
+// src/keyboard.ts
+var REMOTE_ACTIONS = /* @__PURE__ */ new Set(["up", "down", "left", "right", "confirm", "back"]);
+function createKeyboard(keymap, emit, claim) {
+  const actionForKey = /* @__PURE__ */ new Map();
+  for (const action of ACTIONS) {
+    for (const code of keymap[action] ?? []) {
+      if (!actionForKey.has(code)) actionForKey.set(code, action);
+    }
+  }
+  const keysDown = /* @__PURE__ */ new Map();
+  const send = (action, state, repeat = false) => {
+    const source = REMOTE_ACTIONS.has(action) ? "remote" : "gamepad";
+    emit(
+      state === "down" ? { action, state, repeat, source, player: 1 } : { action, state, repeat: false, source, player: 1 }
+    );
+  };
+  const releaseAll = () => {
+    for (const [action, codes] of keysDown) {
+      if (codes.size === 0) continue;
+      codes.clear();
+      send(action, "up");
+    }
+  };
+  return {
+    isMapped: (code) => actionForKey.has(code),
+    keydown(event) {
+      if (event.metaKey) {
+        releaseAll();
+        return;
+      }
+      if (event.ctrlKey || event.altKey || isEditable(event)) return;
+      const action = actionForKey.get(event.code);
+      if (!action) return;
+      claim(event);
+      const codes = keysDown.get(action) ?? /* @__PURE__ */ new Set();
+      keysDown.set(action, codes);
+      if (codes.has(event.code)) {
+        if (event.repeat) send(action, "down", true);
+        return;
+      }
+      codes.add(event.code);
+      if (codes.size === 1) send(action, "down");
+    },
+    keyup(event) {
+      const action = actionForKey.get(event.code);
+      const codes = action && keysDown.get(action);
+      if (!action || !codes?.delete(event.code)) return;
+      claim(event);
+      if (codes.size === 0) send(action, "up");
+    },
+    releaseAll
+  };
+}
+function isEditable(event) {
+  if (typeof HTMLElement === "undefined") return false;
+  const target = event.composedPath?.()[0] ?? event.target;
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
+// src/merge.ts
+function mergeInputs(emit) {
+  const holders = /* @__PURE__ */ new Map();
+  return (reader) => (detail) => {
+    const key = `${detail.action}|${detail.source}|${detail.player}`;
+    let held = holders.get(key);
+    if (!held) {
+      held = /* @__PURE__ */ new Set();
+      holders.set(key, held);
+    }
+    if (detail.state === "down") {
+      if (detail.repeat) {
+        if (held.has(reader)) emit(detail);
+        return;
+      }
+      if (held.has(reader)) return;
+      held.add(reader);
+      if (held.size === 1) emit(detail);
+      return;
+    }
+    if (!held.delete(reader)) return;
+    if (held.size === 0) {
+      holders.delete(key);
+      emit(detail);
+    }
+  };
+}
 
 // src/held.ts
 function createHeld() {
@@ -278,97 +425,19 @@ function createInput(options = {}) {
       isDown: (action, player) => !disposed && (slimtv()?.input.isDown(action, player) ?? false)
     };
   }
-  const actionForKey = /* @__PURE__ */ new Map();
-  for (const action of ACTIONS) {
-    for (const code of (options.keymap ?? DEFAULT_KEYMAP)[action] ?? []) {
-      if (!actionForKey.has(code)) actionForKey.set(code, action);
-    }
-  }
   const preventDefault = options.preventDefault !== false;
-  const keysDown = /* @__PURE__ */ new Map();
-  const keyboard = (action, state, repeat = false) => deliver(
-    state === "down" ? { action, state, repeat, source: "remote", player: 1 } : { action, state, repeat: false, source: "remote", player: 1 }
-  );
-  const releaseKeys = () => {
-    for (const [action, codes] of keysDown) {
-      if (codes.size === 0) continue;
-      codes.clear();
-      keyboard(action, "up");
-    }
-  };
-  listen("keydown", (event) => {
-    if (event.metaKey) {
-      releaseKeys();
-      return;
-    }
-    if (event.ctrlKey || event.altKey || isEditable(event)) return;
-    const action = actionForKey.get(event.code);
-    if (!action) return;
+  const from = mergeInputs(deliver);
+  const keyboard = createKeyboard(options.keymap ?? DEFAULT_KEYMAP, from("keyboard"), (event) => {
     if (preventDefault) event.preventDefault();
-    const codes = keysDown.get(action) ?? /* @__PURE__ */ new Set();
-    keysDown.set(action, codes);
-    if (codes.has(event.code)) {
-      if (event.repeat) keyboard(action, "down", true);
-      return;
-    }
-    codes.add(event.code);
-    if (codes.size === 1) keyboard(action, "down");
   });
-  listen("keyup", (event) => {
-    const action = actionForKey.get(event.code);
-    const codes = action && keysDown.get(action);
-    if (!action || !codes?.delete(event.code)) return;
-    if (preventDefault) event.preventDefault();
-    if (codes.size === 0) keyboard(action, "up");
-  });
-  listen("blur", releaseKeys);
-  if (options.gamepads !== false && typeof navigator !== "undefined" && navigator.getGamepads) {
-    const reader = createGamepadReader(deliver, (text) => console.warn(PREFIX2, text));
-    let frame = 0;
-    let blocked = false;
-    let away = false;
-    const tick = () => {
-      frame = 0;
-      if (disposed || blocked || away) return;
-      let pads;
-      try {
-        pads = [...navigator.getGamepads()];
-      } catch (error) {
-        blocked = true;
-        console.warn(PREFIX2, "controllers can't be read here, so they are ignored.", error);
-        return;
-      }
-      reader.read(pads);
-      if (!disposed && pads.some((pad) => pad?.connected)) frame = requestAnimationFrame(tick);
-    };
-    const start = () => {
-      if (!frame && !disposed && !blocked && !away) frame = requestAnimationFrame(tick);
-    };
-    const stop = () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = 0;
-    };
-    listen("gamepadconnected", start);
-    listen("gamepaddisconnected", start);
-    listen("blur", () => {
-      away = true;
-      stop();
-      reader.releaseAll();
-    });
-    listen("focus", () => {
-      away = false;
-      start();
-    });
-    start();
-    cleanups.push(stop);
+  listen("keydown", keyboard.keydown);
+  listen("keyup", keyboard.keyup);
+  listen("blur", keyboard.releaseAll);
+  if (options.gamepads !== false) {
+    const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX2, text));
+    cleanups.push(watchGamepads(reader, (text, error) => console.warn(PREFIX2, text, error)));
   }
   return { mode: "desktop", ...base, isDown };
-}
-function isEditable(event) {
-  if (typeof HTMLElement === "undefined") return false;
-  const target = event.composedPath?.()[0] ?? event.target;
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
 // src/kit/index.ts

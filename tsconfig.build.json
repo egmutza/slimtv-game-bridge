@@ -7,5 +7,5 @@
     "rootDir": "src",
     "outDir": "dist/types"
   },
-  "include": ["src/kit/index.ts"]
+  "include": ["src/kit/index.ts", "src/fake/index.ts", "src/fake/auto.ts"]
 }

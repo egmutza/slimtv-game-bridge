@@ -20,6 +20,16 @@
       "types": "./dist/types/kit/index.d.ts",
       "import": "./dist/kit.js",
       "default": "./dist/kit.js"
+    },
+    "./fake": {
+      "types": "./dist/types/fake/index.d.ts",
+      "import": "./dist/fake.js",
+      "default": "./dist/fake.js"
+    },
+    "./fake/auto": {
+      "types": "./dist/types/fake/auto.d.ts",
+      "import": "./dist/fake-auto.js",
+      "default": "./dist/fake-auto.js"
     }
   },
   "files": [

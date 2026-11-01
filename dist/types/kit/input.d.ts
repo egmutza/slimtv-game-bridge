@@ -1,4 +1,4 @@
-import { type Action, type InputDetail } from "../contract";
+import type { Action, InputDetail } from "../contract";
 import { type Keymap } from "./keymap";
 export interface InputOptions {
     /** Keys for each action on a computer. Defaults to DEFAULT_KEYMAP. Ignored inside SlimTV. */
@@ -44,7 +44,8 @@ export interface GameInput {
 }
 /**
  * Creates the input layer. It adds listeners only when called, so a game that wants desktop and
- * phone play untouched can call it only when isSlimTV() is true. Keyboard input on a computer is
- * reported as source "remote", player 1, since the keyboard stands in for the remote.
+ * phone play untouched can call it only when isSlimTV() is true. On a computer the keyboard is
+ * player 1: keys for the remote's actions come from the remote, and keys for menu, action1 and
+ * action2, which only controllers have, come from the first controller (see REMOTE_ACTIONS).
  */
 export declare function createInput(options?: InputOptions): GameInput;

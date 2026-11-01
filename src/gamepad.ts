@@ -1,6 +1,6 @@
 // Turns controllers read from the browser's Gamepad API into contract input, following the same
 // rules SlimTV uses natively (CONTRACT.md "Input mapping" and "Players"). Used by the kit's
-// desktop input and, later, by the fake bridge.
+// desktop input and by the fake bridge.
 
 import {
   ACTIONS,
@@ -51,8 +51,12 @@ interface PadState {
 export interface GamepadReader {
   /** Reads the current controllers (navigator.getGamepads()) and reports what changed. */
   read(pads: readonly (GamepadLike | null)[]): void;
-  /** Reports an "up" for everything held, then forgets every controller. */
-  releaseAll(): void;
+  /**
+   * Reports an "up" for everything held, for when the page stops reading (a pause, or the window
+   * losing focus). Controllers keep their player numbers; only a disconnect frees one. Buttons
+   * still pressed come back as a fresh "down" on the next read.
+   */
+  releaseHeld(): void;
 }
 
 /**
@@ -140,8 +144,12 @@ export function createGamepadReader(
         }
       }
     },
-    releaseAll() {
-      for (const index of [...pads.keys()]) release(index);
+    releaseHeld() {
+      for (const pad of pads.values()) {
+        for (const action of ACTIONS) if (pad.held.has(action)) send(action, "up", pad.player);
+        pad.held.clear();
+        pad.stick.clear();
+      }
     },
   };
 }

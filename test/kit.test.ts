@@ -393,6 +393,21 @@ describe("createInput on a computer", () => {
     input.dispose();
   });
 
+  it("keeps menu down while Tab and the first controller's Start both hold it", async () => {
+    const buttons = (pressed: number[]) => Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) }));
+    const pads = [{ index: 0, mapping: "standard", connected: true, buttons: buttons([9]), axes: [0, 0] }];
+    Object.defineProperty(navigator, "getGamepads", { value: () => pads, configurable: true });
+    const input = kit.createInput();
+    const seen: string[] = [];
+    input.on((d) => seen.push(`${d.action} ${d.state} ${d.source}`));
+    await vi.waitFor(() => expect(seen).toEqual(["menu down gamepad"]));
+    key("keydown", "Tab");
+    key("keyup", "Tab");
+    expect(input.isDown("menu", 1)).toBe(true);
+    expect(seen).toEqual(["menu down gamepad"]);
+    input.dispose();
+  });
+
   it("gives up on controllers, warning once, where they can't be read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const getGamepads = vi.fn(() => {

@@ -14,8 +14,12 @@ export declare const GAMEPAD_BUTTONS: readonly (readonly [number, Action])[];
 export interface GamepadReader {
     /** Reads the current controllers (navigator.getGamepads()) and reports what changed. */
     read(pads: readonly (GamepadLike | null)[]): void;
-    /** Reports an "up" for everything held, then forgets every controller. */
-    releaseAll(): void;
+    /**
+     * Reports an "up" for everything held, for when the page stops reading (a pause, or the window
+     * losing focus). Controllers keep their player numbers; only a disconnect frees one. Buttons
+     * still pressed come back as a fresh "down" on the next read.
+     */
+    releaseHeld(): void;
 }
 /**
  * Creates a reader that calls `emit` for each change. Rules:
