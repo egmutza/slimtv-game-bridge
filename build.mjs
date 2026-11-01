@@ -4,6 +4,7 @@
 
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -43,6 +44,10 @@ if (shimFile.contents.length > SHIM_MAX_BYTES) {
   throw new Error(`build: the shim is ${shimFile.contents.length} bytes, over the ${SHIM_MAX_BYTES} byte limit`);
 }
 outputs.push({ path: "dist/slimtv-shim.js", text: shimFile.text });
+// Its SHA-256, in sha256sum's format, so SlimTV can check the copy it pins
+// (`sha256sum -c slimtv-shim.js.sha256`). Committed, so the hash is part of the tagged release.
+const shimHash = createHash("sha256").update(shimFile.contents).digest("hex");
+outputs.push({ path: "dist/slimtv-shim.js.sha256", text: `${shimHash}  slimtv-shim.js\n` });
 
 // The kit: one readable ES module for games to import.
 const kit = await build({
@@ -88,7 +93,8 @@ for (const [entry, out, what] of [
   outputs.push({ path: out, text: result.outputFiles[0].text });
 }
 
-// The kit's TypeScript declarations, from tsc (tsconfig.build.json), into dist/types/.
+// TypeScript declarations for the kit and the fake bridge, from tsc (tsconfig.build.json), into
+// dist/types/.
 const typesDir = await mkdtemp(join(tmpdir(), "slimtv-game-bridge-types-"));
 try {
   execFileSync("npx", ["tsc", "-p", "tsconfig.build.json", "--outDir", typesDir], { stdio: "inherit" });

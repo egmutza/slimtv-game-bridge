@@ -8,8 +8,8 @@ shim SlimTV injects into every game page, and the kit games import. The types in
 `src/contract.ts` follow this file; if the two ever disagree, this file wins and the types are a
 bug.
 
-"Game bridge" here never means `slimtv-bridge`, the Python service on kilotin. That is a different
-project with its own release names.
+"Game bridge" here never means `slimtv-bridge`, the Python service on the home server. That is a
+different project with its own release names.
 
 Items marked **(added)** were not in the first draft of the contract. They fill gaps the first
 draft left open.

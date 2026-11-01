@@ -181,7 +181,7 @@ async function playTone(trigger: string): Promise<void> {
     running
       ? "Allowed: you should have heard a short tone."
       : onTV
-        ? "Blocked: SlimTV's setMediaPlaybackRequiresUserGesture(false) is missing."
+        ? "Blocked: most likely SlimTV's setMediaPlaybackRequiresUserGesture(false) is missing."
         : "Blocked, as a computer's browser does before the first click. Only the TV's result counts.",
     running ? "ok" : onTV ? "bad" : "warn",
   );

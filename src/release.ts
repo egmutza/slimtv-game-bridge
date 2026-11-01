@@ -1,6 +1,7 @@
-// The slimtv-game-bridge release this build belongs to. This is the only place the name is
-// written by hand: the shim reports it as SlimTV.bridge, the kit compares against it, and the
-// build stamps it into dist/. See "Versioning" in CONTRACT.md.
+// The slimtv-game-bridge release this build belongs to, and the code's only copy of its name: the
+// shim reports it as SlimTV.bridge, the kit compares against it, and the build stamps it into
+// dist/. The docs repeat it (CONTRACT.md, CHANGELOG.md, README.md), and `npm run check:release`
+// checks that they agree with this file. See "Versioning" in CONTRACT.md.
 
 /** The release's "Adjective Animal" name, for example "Steady Heron". */
 export const RELEASE_NAME = "Steady Heron";

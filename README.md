@@ -13,7 +13,55 @@ This repo ships three things:
 - **The fake bridge** (`slimtv-game-bridge/fake/auto`): SlimTV imitated on a computer, for trying a
   game in TV mode without the TV.
 
-Installing and pinning a release is covered once the first release is tagged.
+Releases are named "Adjective Animal" and tagged in lowercase with hyphens: the first is Steady
+Heron, tag `steady-heron`. What changed in each is in [CHANGELOG.md](CHANGELOG.md).
+
+## Installing the kit in a game
+
+```
+npm install github:egmutza/slimtv-game-bridge#steady-heron
+```
+
+Check that `package.json` names the tag itself (`github:egmutza/slimtv-game-bridge#steady-heron`),
+never a branch; `package-lock.json` then records the exact commit, so every build gets the same
+code. Nothing is built on install: the package is the committed `dist/`.
+
+```ts
+import { createInput, isSlimTV, onPause, ready } from "slimtv-game-bridge";
+
+if (isSlimTV()) {
+  const input = createInput();
+  input.on((press) => {
+    // press.action is "up", "confirm", "back" and so on; press.state is "down" or "up".
+  });
+  onPause(() => {
+    // Pause the game loop and audio, and show the pause menu.
+  });
+}
+
+// Once the game is loaded and interactive:
+ready();
+```
+
+Importing the kit does nothing on its own. Outside SlimTV every call except `createInput()` is a
+safe no-op. `createInput()` reads the keyboard and controllers on a computer, so a game that wants
+phone and computer play untouched calls it only when `isSlimTV()` is true, as above. If the game's kit release differs from the shim SlimTV
+injects, the kit logs one warning and carries on. Updating to a new release means changing the tag
+and reading that release's entry in the changelog first: anything marked **BREAKING** needs SlimTV
+and the game updated together.
+
+## Pinning the shim in SlimTV
+
+Each release on GitHub carries the shim and its SHA-256:
+
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/steady-heron/slimtv-shim.js>
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/steady-heron/slimtv-shim.js.sha256>
+
+SlimTV keeps its own copy of the shim, checked against that hash
+(`sha256sum -c slimtv-shim.js.sha256`), rather than fetching it at run time. When it injects the
+shim, it puts `window.__SLIMTV_CONFIG__ = { device }` in front of it, written with a JSON encoder.
+Everything else SlimTV's game WebView must do is in "Native side requirements" in
+[CONTRACT.md](CONTRACT.md).
 
 ## The fake bridge
 
@@ -66,11 +114,24 @@ of the contract on the TV:
 - the window size, pixel ratio and screen the TV's browser reports;
 - whether a tone can play at load with no button press;
 - whether localStorage, a cookie and IndexedDB survive closing and reopening the page;
-- any warnings the shim logs about bad messages from SlimTV.
+- any warnings the bridge logs (the shim, kit or fake bridge), such as bad messages from SlimTV.
 
 Left and right move between its Ready, Exit and Play tone buttons and OK presses one. Before
 Ready, Back should leave at once; after it, only holding Back for 1 second should. On a computer,
 open it with `?platform=slimtv&fakebridge=1` to run it under the fake bridge.
+
+## Making a release
+
+1. Pick the next "Adjective Animal" name. Set it in `src/release.ts` (name and tag), the
+   "Release:" line of `CONTRACT.md`, a new top entry in `CHANGELOG.md` (mark anything that needs
+   SlimTV and every game updated together **BREAKING**), and the tag in this README's install
+   command and download links.
+2. `npm run build`, then `npm test`, `npm run check:dist` and `npm run check:release`.
+3. Commit and push, and wait for CI to pass.
+4. Install from the pushed commit into an empty project and import each entry, to be sure a game
+   can install it.
+5. Tag the commit and publish the GitHub release with the shim and its hash attached:
+   `gh release create <tag> dist/slimtv-shim.js dist/slimtv-shim.js.sha256 --title "<Name>"`.
 
 ## Working on this repo
 
@@ -79,6 +140,7 @@ npm run typecheck
 npm test
 npm run build        # rewrites dist/
 npm run check:dist   # fails if dist/ is stale
+npm run check:release   # fails if the release name disagrees anywhere
 npm run build:site   # builds the test page into site/ (not committed)
 ```
 

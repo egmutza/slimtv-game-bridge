@@ -1,6 +1,7 @@
 // The game kit: what a game imports to work inside SlimTV. Importing it does nothing on its own:
-// no listeners, no globals. Every call looks up window.SlimTV when it runs, and outside SlimTV
-// every call is a safe no-op, so desktop and phone play are untouched.
+// no listeners, no globals. Every call looks up window.SlimTV when it runs. Outside SlimTV every
+// call except createInput() is a safe no-op; createInput() reads the keyboard and controllers
+// there, so a game that wants desktop and phone play untouched calls it only when isSlimTV().
 
 import type { DeviceInfo, LogLevel } from "../contract";
 import { slimtv } from "./slimtv";

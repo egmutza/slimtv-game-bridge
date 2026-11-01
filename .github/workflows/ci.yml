@@ -21,3 +21,4 @@ jobs:
       - run: npm test
       # dist/ is committed: fail if it doesn't match the source.
       - run: npm run check:dist
+      - run: npm run check:release

@@ -6,13 +6,15 @@ data, local commands, and any decisions an agent must not guess.
 ## What this is
 
 slimtv-game-bridge: the JavaScript side of the contract between SlimTV (Eric's
-Android TV home app on the Onn, repo `~/workspace/slim-tv`) and the web games
+Android TV home app on the Onn, repo `slim-tv`) and the web games
 it launches (first: Voidcruxx). It ships the shim SlimTV injects
 (`dist/slimtv-shim.js`) and the kit games import. It is not `slimtv-bridge`,
-the Python service on kilotin; say "game bridge" when that could be confused.
+the Python service on the home server; say "game bridge" when that could be
+confused. Don't name private machines or local paths here: the repo is public.
 
 - `CONTRACT.md` is the source of truth. `src/contract.ts` follows it.
-- The release name lives only in `src/release.ts`.
+- The release name lives in `src/release.ts` for all code. The docs repeat it, and
+  `npm run check:release` checks they agree; README.md "Making a release" lists every step.
 - The shim and kit have zero runtime dependencies. Ask before adding any
   dependency, dev or runtime.
 - `dist/` is committed (games install from git tags with no build step).
@@ -20,7 +22,8 @@ the Python service on kilotin; say "game bridge" when that could be confused.
 - No em dashes in UI copy, comments, or docs.
 - The repo is public. Nothing private goes in it.
 - Commands: `npm run typecheck`, `npm test`, `npm run build` (rewrites `dist/`),
-  `npm run check:dist` (fails if `dist/` is stale), `npm run build:site` (test page into
+  `npm run check:dist` (fails if `dist/` is stale), `npm run check:release` (release name
+  agrees everywhere), `npm run build:site` (test page into
   `site/`, which GitHub Pages publishes; never committed).
 
 ## Baseline safety

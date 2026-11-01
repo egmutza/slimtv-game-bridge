@@ -34,14 +34,16 @@
   },
   "files": [
     "dist",
-    "CONTRACT.md"
+    "CONTRACT.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "node build.mjs",
     "check:dist": "node build.mjs --check",
-    "build:site": "node build-site.mjs"
+    "build:site": "node build-site.mjs",
+    "check:release": "node scripts/check-release.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
