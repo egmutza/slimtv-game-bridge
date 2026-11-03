@@ -120,6 +120,9 @@ describe("keyboard as the remote", () => {
     key("keydown", "KeyZ");
     key("keydown", "Enter");
     expect(seen).toEqual(["menu down gamepad p1", "action1 down gamepad p1", "confirm down remote p1"]);
+    key("keydown", "KeyE");
+    key("keydown", "Digit3");
+    expect(seen.slice(3)).toEqual(["r1 down gamepad p1", "r2 down gamepad p1"]);
   });
 
   it("hides the release of a mapped key it wasn't tracking", () => {
@@ -127,8 +130,8 @@ describe("keyboard as the remote", () => {
     const pageKeys: string[] = [];
     window.addEventListener("keyup", (e) => pageKeys.push(e.code));
     key("keyup", "Enter"); // held since before the bridge, a pause or a blur
-    key("keyup", "KeyQ");
-    expect(pageKeys).toEqual(["KeyQ"]);
+    key("keyup", "KeyP");
+    expect(pageKeys).toEqual(["KeyP"]);
   });
 
   it("leaves the release of a shortcut visible to the page", () => {
@@ -162,12 +165,12 @@ describe("keyboard as the remote", () => {
     const seen = watch();
     const pageKeys: string[] = [];
     window.addEventListener("keydown", (e) => pageKeys.push(e.code));
-    key("keydown", "KeyQ");
+    key("keydown", "KeyP");
     const box = document.createElement("input");
     document.body.append(box);
     key("keydown", "KeyW", {}, box);
     expect(seen).toEqual([]);
-    expect(pageKeys).toEqual(["KeyQ", "KeyW"]);
+    expect(pageKeys).toEqual(["KeyP", "KeyW"]);
   });
 
   it("works with the kit's createInput, with no doubled input", () => {
@@ -337,6 +340,22 @@ describe("controllers", () => {
     expect(seen).toEqual(["pause"]);
     key("keydown", PAUSE_KEY);
     await vi.waitFor(() => expect(seen).toEqual(["pause", "resume", "action2 down gamepad p2"]));
+  });
+
+  it("send stick positions through the bridge, and none while paused", async () => {
+    let pads: unknown[] = [{ index: 0, mapping: "standard", connected: true, buttons: buttons([]), axes: [0, 0, 0, 1] }];
+    Object.defineProperty(navigator, "getGamepads", { value: () => pads, configurable: true });
+    install();
+    window.dispatchEvent(new Event("gamepadconnected"));
+    await vi.waitFor(() => expect(window.SlimTV?.input.stick("right", 1)).toEqual({ x: 0, y: 1 }));
+    key("keydown", PAUSE_KEY);
+    expect(window.SlimTV?.input.stick("right", 1)).toEqual({ x: 0, y: 0 });
+    pads = [{ index: 0, mapping: "standard", connected: true, buttons: buttons([]), axes: [-1, 0, 0, 1] }];
+    await frames();
+    expect(window.SlimTV?.input.stick("left", 1)).toEqual({ x: 0, y: 0 });
+    key("keydown", PAUSE_KEY);
+    await vi.waitFor(() => expect(window.SlimTV?.input.stick("left", 1)).toEqual({ x: -1, y: 0 }));
+    expect(window.SlimTV?.input.stick("right", 1)).toEqual({ x: 0, y: 1 });
   });
 
   it("send gamepad input through the bridge", async () => {

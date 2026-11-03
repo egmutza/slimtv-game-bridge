@@ -277,7 +277,7 @@ describe("createInput on a computer", () => {
     const event = new KeyboardEvent("keydown", { code: "Tab", cancelable: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
-    const unmapped = new KeyboardEvent("keydown", { code: "KeyQ", cancelable: true });
+    const unmapped = new KeyboardEvent("keydown", { code: "KeyP", cancelable: true });
     window.dispatchEvent(unmapped);
     expect(unmapped.defaultPrevented).toBe(false);
     strict.dispose();
@@ -420,6 +420,66 @@ describe("createInput on a computer", () => {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     expect(getGamepads).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledOnce();
+    input.dispose();
+  });
+});
+
+describe("stick positions", () => {
+  const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const buttons = () => Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+
+  it("asks the shim inside SlimTV", () => {
+    const { deliver } = installShim();
+    const input = kit.createInput();
+    deliver({ type: "stick", stick: "right", x: 0.25, y: -1, player: 2 });
+    expect(input.stick("right", 2)).toEqual({ x: 0.25, y: -1 });
+    expect(input.stick("right")).toEqual({ x: 0.25, y: -1 });
+    input.dispose();
+    expect(input.stick("right", 2)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("reads 0, 0 under an older shim that doesn't report sticks", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const older = {
+      bridge: "Steady Heron",
+      device: { name: "Onn 4K Pro Gen 2", tier: "tv" },
+      ready() {},
+      exit() {},
+      log() {},
+      input: { isDown: () => false },
+      [SHIM_MARK]: "Steady Heron",
+    };
+    Object.defineProperty(window, "SlimTV", { value: older, configurable: true });
+    const input = kit.createInput();
+    expect(input.mode).toBe("slimtv");
+    expect(input.stick("left")).toEqual({ x: 0, y: 0 });
+    input.dispose();
+  });
+
+  it("reads controllers' sticks on a computer, and forgets them on dispose", async () => {
+    let pads: unknown[] = [{ index: 0, mapping: "standard", connected: true, buttons: buttons(), axes: [0, 0, 1, 0] }];
+    Object.defineProperty(navigator, "getGamepads", { value: () => pads, configurable: true });
+    const input = kit.createInput();
+    window.dispatchEvent(new Event("gamepadconnected"));
+    await vi.waitFor(() => expect(input.stick("right", 1)).toEqual({ x: 1, y: 0 }));
+    expect(input.stick("left", 1)).toEqual({ x: 0, y: 0 });
+    pads = [{ index: 0, mapping: "standard", connected: true, buttons: buttons(), axes: [0, -1, 1, 0] }];
+    await vi.waitFor(() => expect(input.stick("left")).toEqual({ x: 0, y: -1 }));
+    window.dispatchEvent(new Event("blur"));
+    expect(input.stick("right")).toEqual({ x: 0, y: 0 });
+    window.dispatchEvent(new Event("focus"));
+    await frames();
+    expect(input.stick("right")).toEqual({ x: 1, y: 0 });
+    input.dispose();
+    expect(input.stick("right")).toEqual({ x: 0, y: 0 });
+  });
+
+  it("reads the new buttons from keys on a computer, as the first controller", () => {
+    const input = kit.createInput({ gamepads: false });
+    const seen: string[] = [];
+    input.on((d) => seen.push(`${d.action} ${d.source}`));
+    for (const code of ["KeyQ", "KeyE", "Digit1", "Digit3", "KeyC", "KeyV"]) key("keydown", code);
+    expect(seen).toEqual(["l1 gamepad", "r1 gamepad", "l2 gamepad", "r2 gamepad", "l3 gamepad", "r3 gamepad"]);
     input.dispose();
   });
 });

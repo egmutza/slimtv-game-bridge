@@ -2,20 +2,33 @@
 // player numbers, and disconnects.
 
 import { describe, expect, it } from "vitest";
-import { MAX_PLAYERS, type InputDetail } from "../src/contract";
+import { MAX_PLAYERS, type InputDetail, type StickDetail } from "../src/contract";
 import { createGamepadReader, type GamepadLike } from "../src/gamepad";
 
-function pad(index: number, fields: { buttons?: number[]; axes?: number[]; mapping?: string } = {}): GamepadLike {
-  const buttons = Array.from({ length: 17 }, (_, i) => ({ pressed: fields.buttons?.includes(i) ?? false }));
+function pad(
+  index: number,
+  fields: { buttons?: number[]; axes?: number[]; mapping?: string; values?: Record<number, number> } = {},
+): GamepadLike {
+  const buttons = Array.from({ length: 17 }, (_, i) => {
+    const pressed = fields.buttons?.includes(i) ?? false;
+    const value = fields.values?.[i];
+    return value === undefined ? { pressed } : { pressed, value };
+  });
   return { index, mapping: fields.mapping ?? "standard", connected: true, buttons, axes: fields.axes ?? [0, 0, 0, 0] };
 }
 
 function setup() {
   const events: InputDetail[] = [];
   const warnings: string[] = [];
-  const reader = createGamepadReader((d) => events.push(d), (w) => warnings.push(w));
+  const sticks: StickDetail[] = [];
+  const reader = createGamepadReader(
+    (d) => events.push(d),
+    (w) => warnings.push(w),
+    (d) => sticks.push(d),
+  );
   const brief = () => events.splice(0).map((e) => `${e.action} ${e.state} p${e.player}`);
-  return { reader, events, warnings, brief };
+  const moved = () => sticks.splice(0).map((d) => `${d.stick} ${d.x},${d.y} p${d.player}`);
+  return { reader, events, warnings, brief, moved };
 }
 
 describe("gamepad reader", () => {
@@ -119,4 +132,73 @@ describe("gamepad reader", () => {
     reader.read(pads.filter((_, i) => i !== 2));
     expect(brief()).toEqual(["confirm up p3", "confirm down p3"]);
   });
+
+  it("maps the shoulder buttons and stick clicks", () => {
+    const { reader, brief } = setup();
+    reader.read([pad(0, { buttons: [4, 5, 10, 11] })]);
+    expect(brief()).toEqual(["l1 down p1", "r1 down p1", "l3 down p1", "r3 down p1"]);
+    reader.read([pad(0)]);
+    expect(brief()).toHaveLength(4);
+  });
+
+  it("presses a trigger at 0.5 and releases it below 0.35", () => {
+    const { reader, brief } = setup();
+    reader.read([pad(0, { values: { 7: 0.49 } })]);
+    expect(brief()).toEqual([]);
+    reader.read([pad(0, { values: { 7: 0.5 } })]);
+    expect(brief()).toEqual(["r2 down p1"]);
+    reader.read([pad(0, { values: { 7: 0.35 } })]);
+    expect(brief()).toEqual([]);
+    reader.read([pad(0, { values: { 7: 0.34 } })]);
+    expect(brief()).toEqual(["r2 up p1"]);
+    // The browser's own idea of pressed doesn't count when there is a value.
+    reader.read([pad(0, { buttons: [6], values: { 6: 0.2 } })]);
+    expect(brief()).toEqual([]);
+  });
+
+  it("uses a trigger's pressed state when it has no value", () => {
+    const { reader, brief } = setup();
+    reader.read([pad(0, { buttons: [6] })]);
+    expect(brief()).toEqual(["l2 down p1"]);
+    reader.read([pad(0, { values: { 6: Number.NaN } })]);
+    expect(brief()).toEqual(["l2 up p1"]);
+  });
+
+  it("reports both sticks' positions, shaped, and only when they change", () => {
+    const { reader, moved } = setup();
+    reader.read([pad(0, { axes: [0.1, -0.1, 0, 0] })]);
+    expect(moved()).toEqual([]);
+    reader.read([pad(0, { axes: [1, 0, 0, 0.575] })]);
+    expect(moved()).toEqual(["left 1,0 p1", "right 0,0.5 p1"]);
+    reader.read([pad(0, { axes: [1, 0, 0, 0.575] })]);
+    expect(moved()).toEqual([]);
+    // Corners of a square stick are cut to the edge of the circle.
+    reader.read([pad(0, { axes: [1, 1, 0, 0.575] })]);
+    expect(moved()).toEqual(["left 0.71,0.71 p1"]);
+    reader.read([pad(0, { axes: [0, 0.05, 0, 0.575] })]);
+    expect(moved()).toEqual(["left 0,0 p1"]);
+  });
+
+  it("reads the left stick's directions from its raw position, not the shaped one", () => {
+    const { reader, brief } = setup();
+    reader.read([pad(0, { axes: [0.5, 0, 0, 0] })]);
+    expect(brief()).toEqual(["right down p1"]);
+  });
+
+  it("returns a controller's sticks to the centre when it goes away or the page stops reading", () => {
+    const { reader, moved, brief } = setup();
+    reader.read([pad(0, { axes: [0, 0, -1, 0], values: { 7: 1 } })]);
+    expect(moved()).toEqual(["right -1,0 p1"]);
+    expect(brief()).toEqual(["r2 down p1"]);
+    reader.releaseHeld();
+    expect(moved()).toEqual(["right 0,0 p1"]);
+    expect(brief()).toEqual(["r2 up p1"]);
+    reader.read([pad(0, { axes: [0, 0, -1, 0], values: { 7: 1 } })]);
+    expect(moved()).toEqual(["right -1,0 p1"]);
+    expect(brief()).toEqual(["r2 down p1"]);
+    reader.read([]);
+    expect(moved()).toEqual(["right 0,0 p1"]);
+    expect(brief()).toEqual(["r2 up p1"]);
+  });
 });
+

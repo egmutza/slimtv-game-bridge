@@ -1,9 +1,10 @@
-// slimtv-game-bridge kit, release Steady Heron (tag steady-heron).
+// slimtv-game-bridge kit, release Brisk Otter (tag brisk-otter).
 // Built by build.mjs; do not edit.
 import {
   ACTIONS,
   DEFAULT_KEYMAP,
   GAMEPAD_BUTTONS,
+  GAMEPAD_TRIGGERS,
   INPUT_EVENT,
   INPUT_SOURCES,
   LOG_LEVELS,
@@ -13,15 +14,20 @@ import {
   RELEASE_NAME,
   RELEASE_TAG,
   RESUME_EVENT,
+  STICKS,
+  STICK_DEAD_ZONE,
   STICK_PRESS,
   STICK_RELEASE,
+  TRIGGER_PRESS,
+  TRIGGER_RELEASE,
   createGamepadReader,
   createHeld,
   createKeyboard,
+  createSticks,
   isShimObject,
   mergeInputs,
   watchGamepads
-} from "./chunk-AHZ4LGRT.js";
+} from "./chunk-274DK4FR.js";
 
 // src/kit/slimtv.ts
 var PREFIX = `[SlimTV kit ${RELEASE_NAME}]`;
@@ -111,7 +117,11 @@ function createInput(options = {}) {
     }
   };
   const isDown = (action, player) => !disposed && held.isDown(action, player);
-  if (typeof window === "undefined") return { mode: "desktop", ...base, isDown };
+  const sticks = createSticks();
+  const centre = Object.freeze({ x: 0, y: 0 });
+  const stick = (name, player) => disposed ? centre : sticks.get(name, player);
+  cleanups.push(() => sticks.clear());
+  if (typeof window === "undefined") return { mode: "desktop", ...base, isDown, stick };
   if (slimtv()) {
     const delivered = /* @__PURE__ */ new Map();
     listen("slimtv:input", (event) => {
@@ -131,7 +141,13 @@ function createInput(options = {}) {
     return {
       mode: "slimtv",
       ...base,
-      isDown: (action, player) => !disposed && (slimtv()?.input.isDown(action, player) ?? false)
+      isDown: (action, player) => !disposed && (slimtv()?.input.isDown(action, player) ?? false),
+      // Asks the shim too. An older shim has no stick(), so its sticks always read 0, 0.
+      stick: (name, player) => {
+        const input = slimtv()?.input;
+        if (disposed || typeof input?.stick !== "function") return centre;
+        return input.stick(name, player);
+      }
     };
   }
   const preventDefault = options.preventDefault !== false;
@@ -143,10 +159,14 @@ function createInput(options = {}) {
   listen("keyup", keyboard.keyup);
   listen("blur", keyboard.releaseAll);
   if (options.gamepads !== false) {
-    const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX2, text));
+    const reader = createGamepadReader(
+      from("gamepads"),
+      (text) => console.warn(PREFIX2, text),
+      (detail) => void (!disposed && sticks.set(detail))
+    );
     cleanups.push(watchGamepads(reader, (text, error) => console.warn(PREFIX2, text, error)));
   }
-  return { mode: "desktop", ...base, isDown };
+  return { mode: "desktop", ...base, isDown, stick };
 }
 
 // src/kit/index.ts
@@ -191,6 +211,7 @@ export {
   ACTIONS,
   DEFAULT_KEYMAP,
   GAMEPAD_BUTTONS,
+  GAMEPAD_TRIGGERS,
   INPUT_EVENT,
   INPUT_SOURCES,
   LOG_LEVELS,
@@ -200,8 +221,12 @@ export {
   RELEASE_NAME,
   RELEASE_TAG,
   RESUME_EVENT,
+  STICKS,
+  STICK_DEAD_ZONE,
   STICK_PRESS,
   STICK_RELEASE,
+  TRIGGER_PRESS,
+  TRIGGER_RELEASE,
   bridgeRelease,
   createInput,
   device,

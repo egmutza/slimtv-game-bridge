@@ -2,7 +2,7 @@
 // TV. On a computer, ?platform=slimtv&fakebridge=1 runs it under the fake bridge instead.
 
 import "../src/fake/auto";
-import { ACTIONS, type InputDetail } from "../src/contract";
+import { ACTIONS, STICKS, type InputDetail } from "../src/contract";
 import { bridgeRelease, createInput, device, exit, isSlimTV, log, onPause, onResume, ready, RELEASE_NAME } from "../src/kit/index";
 
 declare global {
@@ -128,6 +128,38 @@ function queueDraw(): void {
 drawGrid();
 addEventListener("slimtv:input", queueDraw);
 addEventListener("slimtv:pause", queueDraw);
+
+// ----- Sticks-now table -----------------------------------------------------------------------
+// Stick positions arrive with no event, so they are read ten times a second, and a cell is
+// written only when its text changes.
+
+const sticksTable = $<HTMLTableElement>("sticks");
+const sticksHead = sticksTable.insertRow();
+for (const label of ["Player", ...STICKS.map((s) => `${s[0]!.toUpperCase()}${s.slice(1)}`)]) {
+  const th = document.createElement("th");
+  th.textContent = label;
+  sticksHead.append(th);
+}
+const stickCells = PLAYERS.map((player) => {
+  const tr = sticksTable.insertRow();
+  tr.insertCell().textContent = `P${player}`;
+  return { player, row: STICKS.map((stick) => ({ stick, cell: tr.insertCell(), text: "" })) };
+});
+const axis = (value: number): string => (value < 0 ? "" : "+") + value.toFixed(2);
+function drawSticks(): void {
+  for (const { player, row } of stickCells) {
+    for (const entry of row) {
+      const { x, y } = input.stick(entry.stick, player);
+      const text = x === 0 && y === 0 ? "" : `${axis(x)} ${axis(y)}`;
+      if (text === entry.text) continue;
+      entry.text = text;
+      entry.cell.textContent = text;
+      entry.cell.className = text ? "held" : "";
+    }
+  }
+}
+drawSticks();
+setInterval(drawSticks, 100);
 
 // ----- Buttons and focus ----------------------------------------------------------------------
 

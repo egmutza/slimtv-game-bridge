@@ -1,4 +1,4 @@
-// slimtv-game-bridge shim, release Steady Heron (tag steady-heron).
+// slimtv-game-bridge shim, release Brisk Otter (tag brisk-otter).
 // SlimTV injects this into every game page. Built from src/shim by build.mjs; do not edit.
 // The contract it follows: CONTRACT.md in https://github.com/egmutza/slimtv-game-bridge
 "use strict";
@@ -13,10 +13,17 @@
     "back",
     "menu",
     "action1",
-    "action2"
+    "action2",
+    "l1",
+    "r1",
+    "l2",
+    "r2",
+    "l3",
+    "r3"
   ];
   var INPUT_SOURCES = ["remote", "gamepad"];
   var MAX_PLAYERS = 16;
+  var STICKS = ["left", "right"];
   var LOG_LEVELS = ["debug", "info", "warn", "error"];
   var LOG_MESSAGE_MAX = 2e3;
   var INPUT_EVENT = "slimtv:input";
@@ -54,6 +61,46 @@
     };
   }
 
+  // src/sticks.ts
+  var CENTRE = Object.freeze({ x: 0, y: 0 });
+  function createSticks() {
+    const positions = /* @__PURE__ */ new Map();
+    return {
+      set(detail) {
+        const key = `${detail.stick}|${detail.player}`;
+        const old = positions.get(key) ?? CENTRE;
+        if (old.x === detail.x && old.y === detail.y) return false;
+        if (detail.x === 0 && detail.y === 0) positions.delete(key);
+        else positions.set(key, Object.freeze({ stick: detail.stick, x: detail.x, y: detail.y, player: detail.player }));
+        return true;
+      },
+      get(stick, player) {
+        if (!STICKS.includes(stick)) return CENTRE;
+        if (player !== void 0) {
+          if (!Number.isSafeInteger(player) || player < 1 || player > MAX_PLAYERS) return CENTRE;
+          const found = positions.get(`${stick}|${player}`);
+          return found ? Object.freeze({ x: found.x, y: found.y }) : CENTRE;
+        }
+        let best = CENTRE;
+        let bestDistance = 0;
+        let bestPlayer = Infinity;
+        for (const entry of positions.values()) {
+          if (entry.stick !== stick) continue;
+          const distance = Math.hypot(entry.x, entry.y);
+          if (distance > bestDistance || distance === bestDistance && entry.player < bestPlayer) {
+            bestDistance = distance;
+            bestPlayer = entry.player;
+            best = Object.freeze({ x: entry.x, y: entry.y });
+          }
+        }
+        return best;
+      },
+      clear() {
+        positions.clear();
+      }
+    };
+  }
+
   // src/mark.ts
   var SHIM_MARK = /* @__PURE__ */ Symbol.for("slimtv-game-bridge.shim");
   function isShimObject(value) {
@@ -61,7 +108,7 @@
   }
 
   // src/release.ts
-  var RELEASE_NAME = "Steady Heron";
+  var RELEASE_NAME = "Brisk Otter";
 
   // src/shim/core.ts
   var PREFIX = `[SlimTV ${RELEASE_NAME}]`;
@@ -97,6 +144,7 @@
       console2.warn(PREFIX, "SlimTVNative is missing, so nothing reaches SlimTV.");
     }
     const held = createHeld();
+    const sticks = createSticks();
     const reported = /* @__PURE__ */ new Set();
     const reportBad = (kind, detail) => {
       if (reported.has(kind)) return;
@@ -118,6 +166,14 @@
       const detail = state === "down" ? { action, state, repeat, source, player } : { action, state, repeat: false, source, player };
       if (!held.apply(detail)) return;
       dispatch(INPUT_EVENT, Object.freeze(detail));
+    };
+    const handleStick = (message) => {
+      const { stick, x, y, player } = message;
+      if (!isOneOf(STICKS, stick) || !isAxis(x) || !isAxis(y) || typeof player !== "number" || !Number.isSafeInteger(player) || player < 1 || player > MAX_PLAYERS) {
+        reportBad("bad-stick", preview(message));
+        return;
+      }
+      sticks.set({ stick, x: x || 0, y: y || 0, player });
     };
     const receive = (data) => {
       try {
@@ -145,8 +201,12 @@
           case "input":
             handleInput(record);
             return;
+          case "stick":
+            handleStick(record);
+            return;
           case "pause":
             held.clear();
+            sticks.clear();
             dispatch(PAUSE_EVENT, null);
             return;
           case "resume":
@@ -178,6 +238,9 @@
       input: Object.freeze({
         isDown(action, player) {
           return held.isDown(action, player);
+        },
+        stick(stick, player) {
+          return sticks.get(stick, player);
         }
       })
     };
@@ -195,6 +258,9 @@
   }
   function isOneOf(values, value) {
     return typeof value === "string" && values.includes(value);
+  }
+  function isAxis(value) {
+    return typeof value === "number" && value >= -1 && value <= 1;
   }
   function cut(text) {
     return text.length > LOG_MESSAGE_MAX ? text.slice(0, LOG_MESSAGE_MAX) : text;

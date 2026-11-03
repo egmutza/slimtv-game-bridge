@@ -1,4 +1,4 @@
 /** The release's "Adjective Animal" name, for example "Steady Heron". */
-export declare const RELEASE_NAME = "Steady Heron";
+export declare const RELEASE_NAME = "Brisk Otter";
 /** The git tag for this release: the name in lowercase with hyphens. */
-export declare const RELEASE_TAG = "steady-heron";
+export declare const RELEASE_TAG = "brisk-otter";

@@ -1,4 +1,4 @@
-// slimtv-game-bridge shared code, release Steady Heron (tag steady-heron).
+// slimtv-game-bridge shared code, release Brisk Otter (tag brisk-otter).
 // Built by build.mjs; do not edit.
 import {
   ACTIONS,
@@ -13,14 +13,16 @@ import {
   RELEASE_NAME,
   RESUME_EVENT,
   SHIM_MARK,
+  STICKS,
   createGamepadReader,
   createHeld,
   createKeyboard,
+  createSticks,
   isEditable,
   isShimObject,
   mergeInputs,
   watchGamepads
-} from "./chunk-AHZ4LGRT.js";
+} from "./chunk-274DK4FR.js";
 
 // src/shim/core.ts
 var PREFIX = `[SlimTV ${RELEASE_NAME}]`;
@@ -56,6 +58,7 @@ function createShim(win, transport, device) {
     console2.warn(PREFIX, "SlimTVNative is missing, so nothing reaches SlimTV.");
   }
   const held = createHeld();
+  const sticks = createSticks();
   const reported = /* @__PURE__ */ new Set();
   const reportBad = (kind, detail) => {
     if (reported.has(kind)) return;
@@ -77,6 +80,14 @@ function createShim(win, transport, device) {
     const detail = state === "down" ? { action, state, repeat, source, player } : { action, state, repeat: false, source, player };
     if (!held.apply(detail)) return;
     dispatch(INPUT_EVENT, Object.freeze(detail));
+  };
+  const handleStick = (message) => {
+    const { stick, x, y, player } = message;
+    if (!isOneOf(STICKS, stick) || !isAxis(x) || !isAxis(y) || typeof player !== "number" || !Number.isSafeInteger(player) || player < 1 || player > MAX_PLAYERS) {
+      reportBad("bad-stick", preview(message));
+      return;
+    }
+    sticks.set({ stick, x: x || 0, y: y || 0, player });
   };
   const receive = (data) => {
     try {
@@ -104,8 +115,12 @@ function createShim(win, transport, device) {
         case "input":
           handleInput(record);
           return;
+        case "stick":
+          handleStick(record);
+          return;
         case "pause":
           held.clear();
+          sticks.clear();
           dispatch(PAUSE_EVENT, null);
           return;
         case "resume":
@@ -137,6 +152,9 @@ function createShim(win, transport, device) {
     input: Object.freeze({
       isDown(action, player) {
         return held.isDown(action, player);
+      },
+      stick(stick, player) {
+        return sticks.get(stick, player);
       }
     })
   };
@@ -154,6 +172,9 @@ function createShim(win, transport, device) {
 }
 function isOneOf(values, value) {
   return typeof value === "string" && values.includes(value);
+}
+function isAxis(value) {
+  return typeof value === "number" && value >= -1 && value <= 1;
 }
 function cut(text) {
   return text.length > LOG_MESSAGE_MAX ? text.slice(0, LOG_MESSAGE_MAX) : text;
@@ -270,7 +291,13 @@ function installFakeBridge(options = {}) {
       event.stopImmediatePropagation();
     }
   };
-  const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX2, text));
+  const reader = createGamepadReader(
+    from("gamepads"),
+    (text) => console.warn(PREFIX2, text),
+    (detail) => {
+      if (!paused) deliverToShim(JSON.stringify({ type: "stick", ...detail }));
+    }
+  );
   const togglePause = () => {
     if (!paused) {
       paused = true;

@@ -2,12 +2,13 @@
 // SlimTV's slimtv:input events (the remote and controllers arrive through the bridge). Anywhere
 // else it reads the keyboard and controllers itself, following the same rules.
 
-import type { Action, InputDetail } from "../contract";
+import type { Action, InputDetail, StickName, StickPosition } from "../contract";
 import { createGamepadReader } from "../gamepad";
 import { watchGamepads } from "../gamepadLoop";
 import { createKeyboard } from "../keyboard";
 import { mergeInputs } from "../merge";
 import { createHeld } from "../held";
+import { createSticks } from "../sticks";
 import { RELEASE_NAME } from "../release";
 import { DEFAULT_KEYMAP, type Keymap } from "./keymap";
 import { slimtv } from "./slimtv";
@@ -43,6 +44,13 @@ export interface GameInput {
   off(handler: InputHandler): void;
   /** True while the action is held, by `player` if given, otherwise by anyone. */
   isDown(action: Action, player?: number): boolean;
+  /**
+   * Where a stick is pushed: x and y from -1 to 1, right and down positive. Leaving out `player`
+   * means whichever player pushes it furthest. 0, 0 for a stick at rest, after a pause on the TV or
+   * the window losing focus on a computer, under an older SlimTV that doesn't report sticks, and
+   * after dispose(). For games that read input in a frame loop.
+   */
+  stick(stick: StickName, player?: number): StickPosition;
   /**
    * True if the action went down (not counting repeats) between the last two poll() calls. For
    * games that read input in a frame loop and call poll() once per frame.
@@ -132,8 +140,13 @@ export function createInput(options: InputOptions = {}): GameInput {
   };
   const isDown = (action: Action, player?: number): boolean =>
     !disposed && held.isDown(action, player);
+  const sticks = createSticks();
+  const centre = Object.freeze({ x: 0, y: 0 });
+  const stick = (name: StickName, player?: number): StickPosition =>
+    disposed ? centre : sticks.get(name, player);
+  cleanups.push(() => sticks.clear());
 
-  if (typeof window === "undefined") return { mode: "desktop", ...base, isDown };
+  if (typeof window === "undefined") return { mode: "desktop", ...base, isDown, stick };
 
   if (slimtv()) {
     // Remembers what each source and player holds, to send "up"s on a pause, which the contract
@@ -159,6 +172,12 @@ export function createInput(options: InputOptions = {}): GameInput {
       mode: "slimtv",
       ...base,
       isDown: (action, player) => !disposed && (slimtv()?.input.isDown(action, player) ?? false),
+      // Asks the shim too. An older shim has no stick(), so its sticks always read 0, 0.
+      stick: (name, player) => {
+        const input = slimtv()?.input;
+        if (disposed || typeof input?.stick !== "function") return centre;
+        return input.stick(name, player);
+      },
     };
   }
 
@@ -177,9 +196,13 @@ export function createInput(options: InputOptions = {}): GameInput {
 
   // Controllers, read each frame while any is connected and the window has focus.
   if (options.gamepads !== false) {
-    const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX, text));
+    const reader = createGamepadReader(
+      from("gamepads"),
+      (text) => console.warn(PREFIX, text),
+      (detail) => void (!disposed && sticks.set(detail)),
+    );
     cleanups.push(watchGamepads(reader, (text, error) => console.warn(PREFIX, text, error)));
   }
 
-  return { mode: "desktop", ...base, isDown };
+  return { mode: "desktop", ...base, isDown, stick };
 }

@@ -1,4 +1,4 @@
-import type { Action, InputDetail } from "../contract";
+import type { Action, InputDetail, StickName, StickPosition } from "../contract";
 import { type Keymap } from "./keymap";
 export interface InputOptions {
     /** Keys for each action on a computer. Defaults to DEFAULT_KEYMAP. Ignored inside SlimTV. */
@@ -29,6 +29,13 @@ export interface GameInput {
     off(handler: InputHandler): void;
     /** True while the action is held, by `player` if given, otherwise by anyone. */
     isDown(action: Action, player?: number): boolean;
+    /**
+     * Where a stick is pushed: x and y from -1 to 1, right and down positive. Leaving out `player`
+     * means whichever player pushes it furthest. 0, 0 for a stick at rest, after a pause on the TV or
+     * the window losing focus on a computer, under an older SlimTV that doesn't report sticks, and
+     * after dispose(). For games that read input in a frame loop.
+     */
+    stick(stick: StickName, player?: number): StickPosition;
     /**
      * True if the action went down (not counting repeats) between the last two poll() calls. For
      * games that read input in a frame loop and call poll() once per frame.

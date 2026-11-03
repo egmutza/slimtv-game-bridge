@@ -2,8 +2,9 @@ import { type Action, type InputDetail } from "./contract";
 import type { Keymap } from "./kit/keymap";
 /**
  * The actions the TV remote has (CONTRACT.md "Input mapping"). The keyboard sends these as the
- * remote; the rest (menu, action1, action2) exist only on controllers, so the keyboard sends them
- * as the first controller. A game tested on a computer then sees the same sources as on the TV.
+ * remote; the rest (menu, action1, action2, and the shoulder, trigger and stick buttons) exist only
+ * on controllers, so the keyboard sends them as the first controller. A game tested on a computer
+ * then sees the same sources as on the TV.
  */
 export declare const REMOTE_ACTIONS: ReadonlySet<Action>;
 export interface KeyboardReader {

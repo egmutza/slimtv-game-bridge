@@ -55,7 +55,7 @@
   dt { color: var(--muted); }
   dd { margin: 0; font-variant-numeric: tabular-nums; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-  th, td { padding: 0.25vw 0.4vw; text-align: center; border-bottom: 1px solid var(--line); }
+  th, td { padding: 0.12vw 0.4vw; text-align: center; border-bottom: 1px solid var(--line); }
   th:first-child, td:first-child { text-align: left; }
   td.held { background: var(--held); color: #fff; font-weight: 700; }
   ol { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.95vw; }
@@ -87,6 +87,10 @@
       <p class="hint" id="ready-hint"></p>
       <p class="hint">Left and right move between buttons; OK presses one. Back is only logged here: hold it for 1 second to leave.</p>
     </section>
+    <section>
+      <h2>Device and screen</h2>
+      <dl id="screen"></dl>
+    </section>
     <section style="flex: 1; min-height: 0;">
       <h2>Input and events <span id="count" class="muted"></span></h2>
       <ol id="log"></ol>
@@ -98,8 +102,8 @@
       <table id="grid"></table>
     </section>
     <section>
-      <h2>Device and screen</h2>
-      <dl id="screen"></dl>
+      <h2>Sticks now</h2>
+      <table id="sticks"></table>
     </section>
   </div>
   <div class="column">

@@ -15,8 +15,12 @@ export {
   MAX_PLAYERS,
   PAUSE_EVENT,
   RESUME_EVENT,
+  STICK_DEAD_ZONE,
   STICK_PRESS,
   STICK_RELEASE,
+  STICKS,
+  TRIGGER_PRESS,
+  TRIGGER_RELEASE,
 } from "../contract";
 export type {
   Action,
@@ -28,9 +32,11 @@ export type {
   SlimTVApi,
   SlimTVEventMap,
   SlimTVInput,
+  StickName,
+  StickPosition,
 } from "../contract";
 export { RELEASE_NAME, RELEASE_TAG } from "../release";
-export { GAMEPAD_BUTTONS } from "../gamepad";
+export { GAMEPAD_BUTTONS, GAMEPAD_TRIGGERS } from "../gamepad";
 export { DEFAULT_KEYMAP, type Keymap } from "./keymap";
 export { createInput, type GameInput, type InputHandler, type InputOptions } from "./input";
 

@@ -152,7 +152,13 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge |
     }
   };
 
-  const reader = createGamepadReader(from("gamepads"), (text) => console.warn(PREFIX, text));
+  const reader = createGamepadReader(
+    from("gamepads"),
+    (text) => console.warn(PREFIX, text),
+    (detail) => {
+      if (!paused) deliverToShim(JSON.stringify({ type: "stick", ...detail }));
+    },
+  );
 
   const togglePause = (): void => {
     if (!paused) {

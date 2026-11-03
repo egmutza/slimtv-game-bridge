@@ -1,8 +1,8 @@
-// slimtv-game-bridge shared code, release Steady Heron (tag steady-heron).
+// slimtv-game-bridge shared code, release Brisk Otter (tag brisk-otter).
 // Built by build.mjs; do not edit.
 // src/release.ts
-var RELEASE_NAME = "Steady Heron";
-var RELEASE_TAG = "steady-heron";
+var RELEASE_NAME = "Brisk Otter";
+var RELEASE_TAG = "brisk-otter";
 
 // src/contract.ts
 var ACTIONS = [
@@ -14,18 +14,68 @@ var ACTIONS = [
   "back",
   "menu",
   "action1",
-  "action2"
+  "action2",
+  "l1",
+  "r1",
+  "l2",
+  "r2",
+  "l3",
+  "r3"
 ];
 var INPUT_SOURCES = ["remote", "gamepad"];
 var MAX_PLAYERS = 16;
 var STICK_PRESS = 0.5;
 var STICK_RELEASE = 0.35;
+var TRIGGER_PRESS = 0.5;
+var TRIGGER_RELEASE = 0.35;
+var STICKS = ["left", "right"];
+var STICK_DEAD_ZONE = 0.15;
 var LOG_LEVELS = ["debug", "info", "warn", "error"];
 var LOG_MESSAGE_MAX = 2e3;
 var INPUT_EVENT = "slimtv:input";
 var PAUSE_EVENT = "slimtv:pause";
 var RESUME_EVENT = "slimtv:resume";
 var MAX_MESSAGE_LENGTH = 4096;
+
+// src/sticks.ts
+var CENTRE = Object.freeze({ x: 0, y: 0 });
+function createSticks() {
+  const positions = /* @__PURE__ */ new Map();
+  return {
+    set(detail) {
+      const key = `${detail.stick}|${detail.player}`;
+      const old = positions.get(key) ?? CENTRE;
+      if (old.x === detail.x && old.y === detail.y) return false;
+      if (detail.x === 0 && detail.y === 0) positions.delete(key);
+      else positions.set(key, Object.freeze({ stick: detail.stick, x: detail.x, y: detail.y, player: detail.player }));
+      return true;
+    },
+    get(stick, player) {
+      if (!STICKS.includes(stick)) return CENTRE;
+      if (player !== void 0) {
+        if (!Number.isSafeInteger(player) || player < 1 || player > MAX_PLAYERS) return CENTRE;
+        const found = positions.get(`${stick}|${player}`);
+        return found ? Object.freeze({ x: found.x, y: found.y }) : CENTRE;
+      }
+      let best = CENTRE;
+      let bestDistance = 0;
+      let bestPlayer = Infinity;
+      for (const entry of positions.values()) {
+        if (entry.stick !== stick) continue;
+        const distance = Math.hypot(entry.x, entry.y);
+        if (distance > bestDistance || distance === bestDistance && entry.player < bestPlayer) {
+          bestDistance = distance;
+          bestPlayer = entry.player;
+          best = Object.freeze({ x: entry.x, y: entry.y });
+        }
+      }
+      return best;
+    },
+    clear() {
+      positions.clear();
+    }
+  };
+}
 
 // src/gamepad.ts
 var GAMEPAD_BUTTONS = [
@@ -37,29 +87,57 @@ var GAMEPAD_BUTTONS = [
   // X / Square
   [3, "action2"],
   // Y / Triangle
+  [4, "l1"],
+  // Left shoulder: LB / L1 / L
+  [5, "r1"],
+  // Right shoulder: RB / R1 / R
   [9, "menu"],
   // Start / Options
+  [10, "l3"],
+  // Left stick pressed in
+  [11, "r3"],
+  // Right stick pressed in
   [12, "up"],
   // D-pad
   [13, "down"],
   [14, "left"],
   [15, "right"]
 ];
+var GAMEPAD_TRIGGERS = [
+  [6, "l2"],
+  [7, "r2"]
+];
+var STICK_AXES = { left: [0, 1], right: [2, 3] };
 var STICK = [
   ["up", 1, -1],
   ["down", 1, 1],
   ["left", 0, -1],
   ["right", 0, 1]
 ];
-function createGamepadReader(emit, warn) {
+function createGamepadReader(emit, warn, emitStick = () => {
+}) {
   const pads = /* @__PURE__ */ new Map();
   let warnedMapping = false;
   let warnedPlayers = false;
   const send = (action, state, player) => emit({ action, state, repeat: false, source: "gamepad", player });
+  const moveStick = (pad, stick, position) => {
+    const old = pad.positions.get(stick);
+    if ((old?.x ?? 0) === position.x && (old?.y ?? 0) === position.y) return;
+    if (position.x === 0 && position.y === 0) pad.positions.delete(stick);
+    else pad.positions.set(stick, position);
+    emitStick({ stick, x: position.x, y: position.y, player: pad.player });
+  };
+  const letGo = (pad) => {
+    for (const action of ACTIONS) if (pad.held.has(action)) send(action, "up", pad.player);
+    pad.held.clear();
+    pad.stick.clear();
+    pad.triggers.clear();
+    for (const stick of STICKS) moveStick(pad, stick, CENTRE);
+  };
   const release = (index) => {
     const pad = pads.get(index);
     if (!pad) return;
-    for (const action of ACTIONS) if (pad.held.has(action)) send(action, "up", pad.player);
+    letGo(pad);
     pads.delete(index);
   };
   const freePlayer = () => {
@@ -94,7 +172,7 @@ function createGamepadReader(emit, warn) {
             }
             continue;
           }
-          state = { player, stick: /* @__PURE__ */ new Set(), held: /* @__PURE__ */ new Set() };
+          state = { player, stick: /* @__PURE__ */ new Set(), triggers: /* @__PURE__ */ new Set(), held: /* @__PURE__ */ new Set(), positions: /* @__PURE__ */ new Map() };
           pads.set(index, state);
         }
         for (const [action, axis, sign] of STICK) {
@@ -105,7 +183,15 @@ function createGamepadReader(emit, warn) {
             state.stick.add(action);
           }
         }
-        const now = new Set(state.stick);
+        for (const [button, action] of GAMEPAD_TRIGGERS) {
+          const value = triggerValue(pad.buttons[button]);
+          if (state.triggers.has(action)) {
+            if (value < TRIGGER_RELEASE) state.triggers.delete(action);
+          } else if (value >= TRIGGER_PRESS) {
+            state.triggers.add(action);
+          }
+        }
+        const now = /* @__PURE__ */ new Set([...state.stick, ...state.triggers]);
         for (const [button, action] of GAMEPAD_BUTTONS) {
           if (pad.buttons[button]?.pressed) now.add(action);
         }
@@ -120,16 +206,30 @@ function createGamepadReader(emit, warn) {
             send(action, "up", state.player);
           }
         }
+        for (const stick of STICKS) {
+          const [x, y] = STICK_AXES[stick];
+          moveStick(state, stick, shapeStick(pad.axes[x] ?? 0, pad.axes[y] ?? 0));
+        }
       }
     },
     releaseHeld() {
-      for (const pad of pads.values()) {
-        for (const action of ACTIONS) if (pad.held.has(action)) send(action, "up", pad.player);
-        pad.held.clear();
-        pad.stick.clear();
-      }
+      for (const pad of pads.values()) letGo(pad);
     }
   };
+}
+function shapeStick(rawX, rawY) {
+  const x = Number.isFinite(rawX) ? rawX : 0;
+  const y = Number.isFinite(rawY) ? rawY : 0;
+  const distance = Math.hypot(x, y);
+  if (distance <= STICK_DEAD_ZONE) return CENTRE;
+  const scaled = Math.min(1, (distance - STICK_DEAD_ZONE) / (1 - STICK_DEAD_ZONE));
+  const round = (value) => Math.round(value * 100) / 100 || 0;
+  return Object.freeze({ x: round(x / distance * scaled), y: round(y / distance * scaled) });
+}
+function triggerValue(button) {
+  if (!button) return 0;
+  if (typeof button.value === "number" && Number.isFinite(button.value)) return button.value;
+  return button.pressed ? 1 : 0;
 }
 
 // src/kit/keymap.ts
@@ -142,7 +242,13 @@ var DEFAULT_KEYMAP = {
   back: ["Escape", "Backspace"],
   menu: ["Tab"],
   action1: ["KeyZ"],
-  action2: ["KeyX"]
+  action2: ["KeyX"],
+  l1: ["KeyQ"],
+  r1: ["KeyE"],
+  l2: ["Digit1"],
+  r2: ["Digit3"],
+  l3: ["KeyC"],
+  r3: ["KeyV"]
 };
 
 // src/gamepadLoop.ts
@@ -334,13 +440,19 @@ export {
   MAX_PLAYERS,
   STICK_PRESS,
   STICK_RELEASE,
+  TRIGGER_PRESS,
+  TRIGGER_RELEASE,
+  STICKS,
+  STICK_DEAD_ZONE,
   LOG_LEVELS,
   LOG_MESSAGE_MAX,
   INPUT_EVENT,
   PAUSE_EVENT,
   RESUME_EVENT,
   MAX_MESSAGE_LENGTH,
+  createSticks,
   GAMEPAD_BUTTONS,
+  GAMEPAD_TRIGGERS,
   createGamepadReader,
   DEFAULT_KEYMAP,
   watchGamepads,

@@ -269,6 +269,91 @@ describe("SlimTV to game", () => {
   });
 });
 
+describe("the buttons added after Steady Heron", () => {
+  it.each(["l1", "r1", "l2", "r2", "l3", "r3"] as const)("passes %s down and up like any other", (action) => {
+    const { press, release, inputs, api } = setup();
+    press({ action, source: "gamepad", player: 2 });
+    expect(api.input.isDown(action, 2)).toBe(true);
+    release({ action, source: "gamepad", player: 2 });
+    expect(api.input.isDown(action)).toBe(false);
+    expect(inputs().map((d) => `${d.action} ${d.state}`)).toEqual([`${action} down`, `${action} up`]);
+  });
+});
+
+describe("stick positions", () => {
+  const stick = (fields: Record<string, unknown> = {}) => ({ type: "stick", stick: "left", x: 0, y: 0, player: 1, ...fields });
+
+  it("reads 0, 0 for every stick until SlimTV reports one", () => {
+    const { api } = setup();
+    expect(api.input.stick("left")).toEqual({ x: 0, y: 0 });
+    expect(api.input.stick("right", 3)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("keeps each player's sticks, with no event", () => {
+    const { send, api, events } = setup();
+    send(stick({ x: 0.5, y: -0.25 }));
+    send(stick({ stick: "right", x: -1, y: 0, player: 2 }));
+    expect(api.input.stick("left", 1)).toEqual({ x: 0.5, y: -0.25 });
+    expect(api.input.stick("right", 2)).toEqual({ x: -1, y: 0 });
+    expect(api.input.stick("left", 2)).toEqual({ x: 0, y: 0 });
+    expect(Object.isFrozen(api.input.stick("left", 1))).toBe(true);
+    expect(events).toEqual([]);
+    send(stick({ x: 0, y: 0 }));
+    expect(api.input.stick("left", 1)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("answers for whoever pushes a stick furthest when no player is given", () => {
+    const { send, api } = setup();
+    send(stick({ x: 0.3, y: 0, player: 1 }));
+    send(stick({ x: 0, y: -0.9, player: 3 }));
+    expect(api.input.stick("left")).toEqual({ x: 0, y: -0.9 });
+    send(stick({ x: 0, y: 0.3, player: 2 }));
+    send(stick({ x: 0, y: 0, player: 3 }));
+    // Players 1 and 2 push equally far: the lower number wins.
+    expect(api.input.stick("left")).toEqual({ x: 0.3, y: 0 });
+  });
+
+  it("answers 0, 0 for an unknown stick or an invalid player", () => {
+    const { send, api } = setup();
+    send(stick({ x: 1, y: 0 }));
+    expect(api.input.stick("middle" as "left")).toEqual({ x: 0, y: 0 });
+    expect(api.input.stick("left", 0)).toEqual({ x: 0, y: 0 });
+    expect(api.input.stick("left", 1.5)).toEqual({ x: 0, y: 0 });
+    expect(api.input.stick("left", MAX_PLAYERS + 1)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("puts every stick back to the centre on pause", () => {
+    const { send, api } = setup();
+    send(stick({ x: 1, y: 0 }));
+    send({ type: "pause" });
+    expect(api.input.stick("left", 1)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("reads -0 as 0", () => {
+    const { deliver, api } = setup();
+    deliver('{"type":"stick","stick":"left","x":-0,"y":0.5,"player":1}');
+    expect(Object.is(api.input.stick("left", 1).x, 0)).toBe(true);
+  });
+
+  const badSticks: [string, Record<string, unknown>][] = [
+    ["unknown stick", { stick: "middle" }],
+    ["x past the edge", { x: 1.01 }],
+    ["y past the edge", { y: -1.5 }],
+    ["x as text", { x: "0.5" }],
+    ["y missing", { y: undefined }],
+    ["player 0", { player: 0 }],
+    ["player over the maximum", { player: MAX_PLAYERS + 1 }],
+    ["fractional player", { player: 2.5 }],
+  ];
+
+  it.each(badSticks)("ignores a stick message with a bad field (%s)", (_name, fields) => {
+    const { send, api, warn } = setup();
+    send(stick({ x: 0.5, ...fields }));
+    expect(api.input.stick("left")).toEqual({ x: 0, y: 0 });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("bad messages", () => {
   const badInputs: [string, Record<string, unknown>][] = [
     ["unknown action", { action: "jump" }],
@@ -319,7 +404,7 @@ describe("bad messages", () => {
     expect(String(warnings[1]?.message)).toContain("not-json");
   });
 
-  it("reports every one of the six kinds exactly once, however often each arrives", () => {
+  it("reports every one of the seven kinds exactly once, however often each arrives", () => {
     const { deliver, warn, sent } = setup();
     const examples: [string, unknown][] = [
       ["not-a-string", 42],
@@ -328,6 +413,7 @@ describe("bad messages", () => {
       ["no-type", "[]"],
       ["unknown-type", '{"type":"launch-missiles"}'],
       ["bad-input", JSON.stringify({ type: "input", action: "jump", state: "down", repeat: false, source: "remote", player: 1 })],
+      ["bad-stick", JSON.stringify({ type: "stick", stick: "middle", x: 0, y: 0, player: 1 })],
     ];
     for (let round = 0; round < 3; round++) for (const [, data] of examples) deliver(data);
     expect(warn).toHaveBeenCalledTimes(examples.length);

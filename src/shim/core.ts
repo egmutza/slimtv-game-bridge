@@ -13,14 +13,18 @@ import {
   MAX_PLAYERS,
   PAUSE_EVENT,
   RESUME_EVENT,
+  STICKS,
   type Action,
   type DeviceInfo,
   type InputDetail,
   type LogLevel,
   type ShimToNativeMessage,
   type SlimTVApi,
+  type StickName,
+  type StickPosition,
 } from "../contract";
 import { createHeld } from "../held";
+import { createSticks } from "../sticks";
 import { isShimObject, SHIM_MARK } from "../mark";
 import { RELEASE_NAME } from "../release";
 
@@ -40,7 +44,7 @@ export { SHIM_MARK };
 const PREFIX = `[SlimTV ${RELEASE_NAME}]`;
 
 /** Kinds of bad native message. Each is reported once per page load. */
-type BadKind = "not-a-string" | "too-long" | "not-json" | "no-type" | "unknown-type" | "bad-input";
+type BadKind = "not-a-string" | "too-long" | "not-json" | "no-type" | "unknown-type" | "bad-input" | "bad-stick";
 
 /**
  * Installs window.SlimTV on `win` and starts talking to native through `transport`.
@@ -92,6 +96,7 @@ export function createShim(
   }
 
   const held = createHeld();
+  const sticks = createSticks();
 
   const reported = new Set<BadKind>();
   const reportBad = (kind: BadKind, detail: string): void => {
@@ -134,6 +139,24 @@ export function createShim(
     dispatch(INPUT_EVENT, Object.freeze(detail));
   };
 
+  const handleStick = (message: Record<string, unknown>): void => {
+    const { stick, x, y, player } = message;
+    if (
+      !isOneOf(STICKS, stick) ||
+      !isAxis(x) ||
+      !isAxis(y) ||
+      typeof player !== "number" ||
+      !Number.isSafeInteger(player) ||
+      player < 1 ||
+      player > MAX_PLAYERS
+    ) {
+      reportBad("bad-stick", preview(message));
+      return;
+    }
+    // -0 reads as 0, so a game comparing with Object.is or dividing by it sees no difference.
+    sticks.set({ stick, x: x || 0, y: y || 0, player });
+  };
+
   const receive = (data: unknown): void => {
     try {
       if (typeof data !== "string") {
@@ -160,8 +183,12 @@ export function createShim(
         case "input":
           handleInput(record);
           return;
+        case "stick":
+          handleStick(record);
+          return;
         case "pause":
           held.clear();
+          sticks.clear();
           dispatch(PAUSE_EVENT, null);
           return;
         case "resume":
@@ -197,6 +224,9 @@ export function createShim(
       isDown(action: Action, player?: number): boolean {
         return held.isDown(action, player);
       },
+      stick(stick: StickName, player?: number): StickPosition {
+        return sticks.get(stick, player);
+      },
     }),
   };
   Object.defineProperty(api, SHIM_MARK, { value: RELEASE_NAME });
@@ -218,6 +248,10 @@ export function createShim(
 
 function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
+}
+
+function isAxis(value: unknown): value is number {
+  return typeof value === "number" && value >= -1 && value <= 1;
 }
 
 function cut(text: string): string {

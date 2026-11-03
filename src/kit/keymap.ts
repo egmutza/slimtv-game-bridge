@@ -16,4 +16,10 @@ export const DEFAULT_KEYMAP: Keymap = {
   menu: ["Tab"],
   action1: ["KeyZ"],
   action2: ["KeyX"],
+  l1: ["KeyQ"],
+  r1: ["KeyE"],
+  l2: ["Digit1"],
+  r2: ["Digit3"],
+  l3: ["KeyC"],
+  r3: ["KeyV"],
 };

@@ -19,10 +19,10 @@ Heron, tag `steady-heron`. What changed in each is in [CHANGELOG.md](CHANGELOG.m
 ## Installing the kit in a game
 
 ```
-npm install github:egmutza/slimtv-game-bridge#steady-heron
+npm install github:egmutza/slimtv-game-bridge#brisk-otter
 ```
 
-Check that `package.json` names the tag itself (`github:egmutza/slimtv-game-bridge#steady-heron`),
+Check that `package.json` names the tag itself (`github:egmutza/slimtv-game-bridge#brisk-otter`),
 never a branch; `package-lock.json` then records the exact commit, so every build gets the same
 code. Nothing is built on install: the package is the committed `dist/`.
 
@@ -34,6 +34,8 @@ if (isSlimTV()) {
   input.on((press) => {
     // press.action is "up", "confirm", "back" and so on; press.state is "down" or "up".
   });
+  // In the frame loop: where the right stick is pushed, x and y from -1 to 1.
+  const { x, y } = input.stick("right");
   onPause(() => {
     // Pause the game loop and audio, and show the pause menu.
   });
@@ -54,8 +56,8 @@ and the game updated together.
 
 Each release on GitHub carries the shim and its SHA-256:
 
-- <https://github.com/egmutza/slimtv-game-bridge/releases/download/steady-heron/slimtv-shim.js>
-- <https://github.com/egmutza/slimtv-game-bridge/releases/download/steady-heron/slimtv-shim.js.sha256>
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/brisk-otter/slimtv-shim.js>
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/brisk-otter/slimtv-shim.js.sha256>
 
 SlimTV keeps its own copy of the shim, checked against that hash
 (`sha256sum -c slimtv-shim.js.sha256`), rather than fetching it at run time. When it injects the
@@ -100,8 +102,9 @@ input created earlier stays in computer mode and won't hear the keyboard.
 
 Keys are hidden from the page, as on the TV, where key presses never reach a game page. Typing in
 a text box is left alone. The TV remote has only the arrows, OK and Back, so only those keys act
-as the remote. Tab, Z and X act as the first controller's buttons, as they would on the TV: a game
-that needs them can't be played with the remote alone.
+as the remote. The other keys in the table act as the first controller's buttons, as they would on
+the TV: a game that needs any of those buttons can't be played with the remote alone. The sticks'
+positions come only from a real controller; the keyboard has none.
 
 | Action | Keys (player 1) | Controller |
 | --- | --- | --- |
@@ -111,6 +114,10 @@ that needs them can't be played with the remote alone.
 | `menu` | Tab (as a controller) | Start / Options |
 | `action1` | Z (as a controller) | X / Square |
 | `action2` | X (as a controller) | Y / Triangle |
+| `l1`, `r1` (shoulders) | Q, E (as a controller) | LB, RB / L1, R1 / L, R |
+| `l2`, `r2` (triggers) | 1, 3 (as a controller) | LT, RT / L2, R2 / ZL, ZR |
+| `l3`, `r3` (sticks pressed in) | C, V (as a controller) | L3, R3 |
+| `stick("left")`, `stick("right")` | | Left and right sticks |
 | Pause and resume (like pressing Home) | F9 | |
 
 Short notes at the bottom of the page show what SlimTV would do:

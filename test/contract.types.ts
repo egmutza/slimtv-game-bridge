@@ -26,6 +26,11 @@ window.SlimTV?.input.isDown("confirm");
 window.SlimTV?.input.isDown("confirm", 2);
 // @ts-expect-error "jump" is not an action
 window.SlimTV?.input.isDown("jump");
+window.SlimTV?.input.isDown("r2", 1);
+const position: { x: number; y: number } | undefined = window.SlimTV?.input.stick("right", 2);
+void position;
+// @ts-expect-error "middle" is not a stick
+window.SlimTV?.input.stick("middle");
 
 // ACTIONS and Action agree.
 const first: Action = ACTIONS[0];
@@ -36,6 +41,8 @@ function describe(message: NativeToShimMessage): string {
   switch (message.type) {
     case "input":
       return `${message.action} ${message.state} p${message.player}`;
+    case "stick":
+      return `${message.stick} ${message.x},${message.y} p${message.player}`;
     case "pause":
     case "resume":
       return message.type;

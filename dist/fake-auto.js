@@ -1,9 +1,9 @@
-// slimtv-game-bridge fake bridge auto-install entry, release Steady Heron (tag steady-heron).
+// slimtv-game-bridge fake bridge auto-install entry, release Brisk Otter (tag brisk-otter).
 // For trying a game on a computer; inside SlimTV it does nothing. Built by build.mjs; do not edit.
 import {
   installFakeBridge
-} from "./chunk-KNG6OGTO.js";
-import "./chunk-AHZ4LGRT.js";
+} from "./chunk-KWPTYG3L.js";
+import "./chunk-274DK4FR.js";
 
 // src/fake/auto.ts
 if (typeof window !== "undefined" && !("SlimTVNative" in window) && !("SlimTV" in window)) {

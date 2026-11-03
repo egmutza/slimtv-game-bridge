@@ -18,7 +18,7 @@ const tag = releaseSource.match(/RELEASE_TAG = "([^"]+)"/)?.[1];
 if (!name || !tag) throw new Error("build: could not read the release name from src/release.ts");
 
 /** The shim must stay small: SlimTV injects it into every game page. */
-const SHIM_MAX_BYTES = 10 * 1024;
+const SHIM_MAX_BYTES = 12 * 1024;
 
 const outputs = [];
 
