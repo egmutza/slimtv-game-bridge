@@ -8,7 +8,7 @@ This repo ships three things:
 - **The shim** (`dist/slimtv-shim.js`): the script SlimTV injects into every game page. It creates
   `window.SlimTV`.
 - **The kit** (`slimtv-game-bridge`): what games import. TV detection, `ready()`, `exit()`, logging,
-  pause and resume, and `createInput()`, one input layer that reads SlimTV on the TV and the
+  pause and resume, `keepAwake()`, and `createInput()`, one input layer that reads SlimTV on the TV and the
   keyboard and controllers on a computer, with the same rules.
 - **The fake bridge** (`slimtv-game-bridge/fake/auto`): SlimTV imitated on a computer, for trying a
   game in TV mode without the TV.
@@ -19,15 +19,15 @@ Heron, tag `steady-heron`. What changed in each is in [CHANGELOG.md](CHANGELOG.m
 ## Installing the kit in a game
 
 ```
-npm install github:egmutza/slimtv-game-bridge#brisk-otter
+npm install github:egmutza/slimtv-game-bridge#wakeful-owl
 ```
 
-Check that `package.json` names the tag itself (`github:egmutza/slimtv-game-bridge#brisk-otter`),
+Check that `package.json` names the tag itself (`github:egmutza/slimtv-game-bridge#wakeful-owl`),
 never a branch; `package-lock.json` then records the exact commit, so every build gets the same
 code. Nothing is built on install: the package is the committed `dist/`.
 
 ```ts
-import { createInput, isSlimTV, onPause, ready } from "slimtv-game-bridge";
+import { AWAKE_RENEW_MS, createInput, isSlimTV, keepAwake, onPause, onResume, ready } from "slimtv-game-bridge";
 
 if (isSlimTV()) {
   const input = createInput();
@@ -43,6 +43,16 @@ if (isSlimTV()) {
 
 // Once the game is loaded and interactive:
 ready();
+
+// Only for a page that must stay on screen while nobody touches the remote: every 2 minutes for
+// as long as that lasts. Without it, the TV's screensaver comes after its idle time, as for any app.
+const awake = setInterval(keepAwake, AWAKE_RENEW_MS);
+keepAwake();
+// A pause (Home, the screensaver) ends the lease, so renew it on resume too.
+const stopResume = onResume(keepAwake);
+// Later, when it no longer needs to: the screen stays on for at most 5 more minutes.
+clearInterval(awake);
+stopResume();
 ```
 
 Importing the kit does nothing on its own. Outside SlimTV every call except `createInput()` is a
@@ -56,8 +66,8 @@ and the game updated together.
 
 Each release on GitHub carries the shim and its SHA-256:
 
-- <https://github.com/egmutza/slimtv-game-bridge/releases/download/brisk-otter/slimtv-shim.js>
-- <https://github.com/egmutza/slimtv-game-bridge/releases/download/brisk-otter/slimtv-shim.js.sha256>
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/wakeful-owl/slimtv-shim.js>
+- <https://github.com/egmutza/slimtv-game-bridge/releases/download/wakeful-owl/slimtv-shim.js.sha256>
 
 SlimTV keeps its own copy of the shim, checked against that hash
 (`sha256sum -c slimtv-shim.js.sha256`), rather than fetching it at run time. When it injects the
@@ -124,6 +134,7 @@ Short notes at the bottom of the page show what SlimTV would do:
 
 - `ready()`: SlimTV would hide its loading screen.
 - `exit()`: SlimTV would return to the home screen.
+- `keepAwake()`: SlimTV would keep the screen on for 5 more minutes.
 - Back before `ready()`: SlimTV would exit at once. The game doesn't get that Back.
 - Back held for 1 second: SlimTV would exit, whatever the game does.
 
@@ -143,9 +154,10 @@ of the contract on the TV:
 - the window size, pixel ratio and screen the TV's browser reports;
 - whether a tone can play at load with no button press;
 - whether localStorage, a cookie and IndexedDB survive closing and reopening the page;
-- any warnings the bridge logs (the shim, kit or fake bridge), such as bad messages from SlimTV.
+- any warnings the bridge logs (the shim, kit or fake bridge), such as bad messages from SlimTV;
+- whether `keepAwake()` holds off the screensaver: Keep awake calls it every 2 minutes while on.
 
-Left and right move between its Ready, Exit and Play tone buttons and OK presses one. Before
+Left and right move between its Ready, Exit, Play tone and Keep awake buttons and OK presses one. Before
 Ready, Back should leave at once; after it, only holding Back for 1 second should. On a computer,
 open it with `?platform=slimtv&fakebridge=1` to run it under the fake bridge.
 

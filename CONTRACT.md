@@ -1,6 +1,6 @@
 # SlimTV Game Bridge contract
 
-Release: **Brisk Otter** (tag `brisk-otter`)
+Release: **Wakeful Owl** (tag `wakeful-owl`)
 
 This file is the source of truth for how SlimTV and the web games it launches talk to each other.
 SlimTV builds the Android side. This repo (slimtv-game-bridge) builds the JavaScript side: the
@@ -34,7 +34,7 @@ draft left open.
 
 - SlimTV injects `window.SlimTV` before any page script runs, and appends `?platform=slimtv` to
   the game's URL. Either signal means TV mode.
-- `SlimTV.bridge` is the release name of the injected shim, for example `"Brisk Otter"`.
+- `SlimTV.bridge` is the release name of the injected shim, for example `"Wakeful Owl"`.
 - `SlimTV.device` is `{ name: "Onn 4K Pro Gen 2", tier: "tv" }`. Games use it to pick a quality
   preset.
 
@@ -45,6 +45,7 @@ draft left open.
 | `SlimTV.ready()` | The game is loaded and interactive. SlimTV hides its loading overlay. |
 | `SlimTV.exit()` | Return to the SlimTV home screen. |
 | `SlimTV.log(level, message)` | Forwarded to logcat. `level` is `"debug"`, `"info"`, `"warn"` or `"error"`. |
+| `SlimTV.keepAwake()` | **(added)** Keep the screen on, with no screensaver, for the next 5 minutes. |
 
 - **(added)** `ready()` is sent to SlimTV once per page load. Later calls do nothing.
 - **(added)** `exit()` is sent every time it is called. SlimTV treats a repeat as harmless.
@@ -52,6 +53,32 @@ draft left open.
   needed to keep the whole wire message within 4096 characters. An unknown
   `level` is sent as `"info"`. (TypeScript games can only pass a valid level and a string; these
   rules are for plain JavaScript callers that pass something else anyway.)
+
+**(added)** **Keeping the screen on** (new in Wakeful Owl):
+
+- Without `keepAwake()`, SlimTV doesn't keep the screen on for a game. The TV's own idle rules
+  apply: on the Onn, the screensaver starts after its idle time (10 minutes as set today) with no button
+  pressed on the remote or a controller. A game being played gets button presses, so it never
+  reaches that. One left on screen untouched gets the screensaver, which protects the TV from
+  burn-in.
+- `keepAwake()` is a lease, not a switch: the screen stays on until 5 minutes after the latest
+  `keepAwake()` SlimTV received. A game that wants the screen kept on while nobody touches the
+  remote (a page people use from their phones, say) calls it every 2 minutes for as long as that
+  lasts, and stops calling it when it no longer needs to. There is no call to end it early: the
+  lease runs out on its own, so a page that hangs or forgets can't keep the screen on for good.
+- The shim sends `keepAwake()` to SlimTV at most once every 30 seconds; calls in between do
+  nothing. A game may call it as often as it likes, even every frame, but every 2 minutes is
+  enough.
+- A pause (`slimtv:pause`) ends the lease. After `slimtv:resume`, the game calls `keepAwake()`
+  again if it still wants the screen kept on. SlimTV ignores calls made while the game is
+  paused, so the shim sends the first call after `slimtv:resume` at once.
+- `keepAwake()` can't end a screensaver that is already showing, or bring the game back to the
+  screen. A button press does that.
+- A reload or navigation within the game doesn't end the lease. It runs out on its own unless the
+  new page calls `keepAwake()` again.
+- Shims before Wakeful Owl have no `keepAwake()`. Plain JavaScript checks for it
+  (`typeof SlimTV.keepAwake === "function"`) before calling it; the kit's `keepAwake()` does
+  that, and does nothing outside SlimTV.
 
 ## SlimTV to game
 
@@ -208,10 +235,11 @@ All three arrive as events on `window`.
 
 | Message | When |
 | --- | --- |
-| `{ "type": "hello", "bridge": "Brisk Otter" }` | First, as soon as the shim starts. It gives native the reply proxy it needs to send anything back. |
+| `{ "type": "hello", "bridge": "Wakeful Owl" }` | First, as soon as the shim starts. It gives native the reply proxy it needs to send anything back. |
 | `{ "type": "ready" }` | The game called `ready()`. |
 | `{ "type": "exit" }` | The game called `exit()`. |
 | `{ "type": "log", "level": "info", "message": "..." }` | The game called `log()`. |
+| `{ "type": "awake" }` | **(added)** The game called `keepAwake()`, and the shim hadn't sent one in the last 30 seconds (or since the latest pause or resume). |
 
 **Native to shim**
 
@@ -267,9 +295,9 @@ because getting any of them wrong breaks a game in ways the page cannot detect o
 - **(added)** Treat every message as untrusted. The page can call `SlimTVNative` itself and skip
   the shim, so native checks everything the shim checks, without relying on it:
   - Ignore any message longer than 4096 characters, before parsing it.
-  - Accept only the four types in "Shim to native", with exactly the fields shown. `level` must
+  - Accept only the five types in "Shim to native", with exactly the fields shown. `level` must
     be one of the four levels, `bridge` and `message` must be strings, and a `message` longer
-    than 2000 characters is ignored.
+    than 2000 characters is ignored. `awake` has no field but `type`.
   - **(added)** Rate-limit every message, whatever its type, not only `log`: count it against a
     budget before parsing it, and drop it unparsed once the budget is spent. Messages arrive on
     the app's main thread, the same thread that watches for the held-Back escape hatch, so a page
@@ -293,6 +321,17 @@ because getting any of them wrong breaks a game in ways the page cannot detect o
 - The game WebView uses the same initial scale rule as the launcher:
   `setInitialScale(round(100 * displayWidthPixels / 1920))`.
 - See [Rendering](#rendering) for what the page is expected to see.
+- **(added)** Don't keep the screen on for a game unless it asks. Opening a game doesn't hold off
+  the screensaver; only `awake` does (see "Keeping the screen on" under
+  [Game to SlimTV](#game-to-slimtv)).
+- **(added)** `awake` keeps the screen on (on Android, `FLAG_KEEP_SCREEN_ON` on the game's
+  window) until 5 minutes after the latest one. Each `awake` restarts the 5 minutes.
+- **(added)** Ignore `awake` while the game isn't in front (paused, or behind a screensaver) and
+  while SlimTV's own screen covers it because the game can't be reached. A page keeps running
+  for a while after it is paused, and must not keep the screen on from behind something else.
+- **(added)** End the lease at once when the game loses the screen (pause), when SlimTV shows
+  that the game can't be reached, and when the game closes. A reload or navigation doesn't end
+  it.
 
 **Storage and web features**
 - JavaScript, DOM storage (off by default in WebView), IndexedDB and service workers are on.
@@ -309,6 +348,7 @@ because getting any of them wrong breaks a game in ways the page cannot detect o
 - `exit`: close the game and return to the home screen with the game's tile focused.
 - `log`: write to logcat at the matching priority, tagged so game logs can be filtered on their
   own.
+- **(added)** `awake`: keep the screen on for 5 more minutes, as in "Screen" above.
 
 ## Versioning
 

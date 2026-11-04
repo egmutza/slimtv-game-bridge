@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { Window } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputDetail, SlimTVApi } from "../src/contract";
-import { LOG_MESSAGE_MAX, MAX_MESSAGE_LENGTH, MAX_PLAYERS } from "../src/contract";
+import { AWAKE_SEND_GAP_MS, LOG_MESSAGE_MAX, MAX_MESSAGE_LENGTH, MAX_PLAYERS } from "../src/contract";
 import { RELEASE_NAME } from "../src/release";
 import { createShim, type ShimWindow, type ShimTransport } from "../src/shim/core";
 import { nativeTransport, readDevice } from "../src/shim/native";
@@ -126,6 +126,7 @@ describe("installing", () => {
       api?.ready();
       api?.exit();
       api?.log("info", "hi");
+      api?.keepAwake();
     }).not.toThrow();
   });
 });
@@ -143,6 +144,56 @@ describe("game to SlimTV", () => {
     api.exit();
     api.exit();
     expect(sent.filter((m) => m.type === "exit")).toHaveLength(2);
+  });
+
+  describe("keepAwake", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("sends awake at once, then at most once per gap", () => {
+      vi.useFakeTimers({ now: 1_000_000 });
+      const { api, sent } = setup();
+      const awakes = () => sent.filter((m) => m.type === "awake");
+      api.keepAwake();
+      expect(awakes()).toEqual([{ type: "awake" }]);
+      api.keepAwake();
+      vi.advanceTimersByTime(AWAKE_SEND_GAP_MS - 1);
+      api.keepAwake();
+      expect(awakes()).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      api.keepAwake();
+      expect(awakes()).toHaveLength(2);
+    });
+
+    it("sends again at once after a pause, which ends SlimTV's lease", () => {
+      vi.useFakeTimers({ now: 1_000_000 });
+      const { api, sent, send } = setup();
+      api.keepAwake();
+      send({ type: "pause" });
+      send({ type: "resume" });
+      api.keepAwake();
+      expect(sent.filter((m) => m.type === "awake")).toHaveLength(2);
+    });
+
+    it("sends the first call after resume at once, even after one made while paused", () => {
+      vi.useFakeTimers({ now: 1_000_000 });
+      const { api, sent, send } = setup();
+      send({ type: "pause" });
+      api.keepAwake();
+      send({ type: "resume" });
+      api.keepAwake();
+      expect(sent.filter((m) => m.type === "awake")).toHaveLength(2);
+    });
+
+    it("sends again when the clock goes backwards", () => {
+      vi.useFakeTimers({ now: 1_000_000 });
+      const { api, sent } = setup();
+      api.keepAwake();
+      vi.setSystemTime(1_000_000 - 60_000);
+      api.keepAwake();
+      expect(sent.filter((m) => m.type === "awake")).toHaveLength(2);
+    });
   });
 
   it("sends logs, cut to the limit, with unknown levels as info", () => {

@@ -1,9 +1,9 @@
-// slimtv-game-bridge fake bridge auto-install entry, release Brisk Otter (tag brisk-otter).
+// slimtv-game-bridge fake bridge auto-install entry, release Wakeful Owl (tag wakeful-owl).
 // For trying a game on a computer; inside SlimTV it does nothing. Built by build.mjs; do not edit.
 import {
   installFakeBridge
-} from "./chunk-KWPTYG3L.js";
-import "./chunk-274DK4FR.js";
+} from "./chunk-MNXYGRTT.js";
+import "./chunk-QP7FNT37.js";
 
 // src/fake/auto.ts
 if (typeof window !== "undefined" && !("SlimTVNative" in window) && !("SlimTV" in window)) {

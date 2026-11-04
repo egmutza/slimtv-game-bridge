@@ -8,6 +8,9 @@ import { slimtv } from "./slimtv";
 
 export {
   ACTIONS,
+  AWAKE_LEASE_MS,
+  AWAKE_RENEW_MS,
+  AWAKE_SEND_GAP_MS,
   INPUT_EVENT,
   INPUT_SOURCES,
   LOG_LEVELS,
@@ -78,6 +81,16 @@ export function exit(): void {
 /** Writes to the TV's log (logcat). Outside SlimTV it does nothing. */
 export function log(level: LogLevel, message: string): void {
   slimtv()?.log(level, message);
+}
+
+/**
+ * Keeps the TV's screen on, with no screensaver, for AWAKE_LEASE_MS (5 minutes). Call it every
+ * AWAKE_RENEW_MS (2 minutes) while the screen should stay on, and stop when it no longer needs to.
+ * Does nothing outside SlimTV, or under a SlimTV older than Wakeful Owl.
+ */
+export function keepAwake(): void {
+  const api = slimtv();
+  if (typeof api?.keepAwake === "function") api.keepAwake();
 }
 
 /**

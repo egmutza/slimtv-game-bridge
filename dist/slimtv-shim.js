@@ -1,4 +1,4 @@
-// slimtv-game-bridge shim, release Brisk Otter (tag brisk-otter).
+// slimtv-game-bridge shim, release Wakeful Owl (tag wakeful-owl).
 // SlimTV injects this into every game page. Built from src/shim by build.mjs; do not edit.
 // The contract it follows: CONTRACT.md in https://github.com/egmutza/slimtv-game-bridge
 "use strict";
@@ -26,6 +26,9 @@
   var STICKS = ["left", "right"];
   var LOG_LEVELS = ["debug", "info", "warn", "error"];
   var LOG_MESSAGE_MAX = 2e3;
+  var AWAKE_LEASE_MS = 5 * 6e4;
+  var AWAKE_RENEW_MS = 2 * 6e4;
+  var AWAKE_SEND_GAP_MS = 3e4;
   var INPUT_EVENT = "slimtv:input";
   var PAUSE_EVENT = "slimtv:pause";
   var RESUME_EVENT = "slimtv:resume";
@@ -108,7 +111,7 @@
   }
 
   // src/release.ts
-  var RELEASE_NAME = "Brisk Otter";
+  var RELEASE_NAME = "Wakeful Owl";
 
   // src/shim/core.ts
   var PREFIX = `[SlimTV ${RELEASE_NAME}]`;
@@ -210,6 +213,7 @@
             dispatch(PAUSE_EVENT, null);
             return;
           case "resume":
+            awakeSentAt = void 0;
             dispatch(RESUME_EVENT, null);
             return;
           default:
@@ -221,6 +225,7 @@
       }
     };
     let readySent = false;
+    let awakeSentAt;
     const api = {
       bridge: RELEASE_NAME,
       device: Object.freeze({ name: device.name, tier: device.tier }),
@@ -234,6 +239,12 @@
       },
       log(level, message) {
         sendLog(isOneOf(LOG_LEVELS, level) ? level : "info", toText(message));
+      },
+      keepAwake() {
+        const now = Date.now();
+        if (awakeSentAt !== void 0 && now >= awakeSentAt && now - awakeSentAt < AWAKE_SEND_GAP_MS) return;
+        awakeSentAt = now;
+        send({ type: "awake" });
       },
       input: Object.freeze({
         isDown(action, player) {

@@ -54,6 +54,12 @@ export declare const LOG_LEVELS: readonly ["debug", "info", "warn", "error"];
 export type LogLevel = (typeof LOG_LEVELS)[number];
 /** log() messages are cut to this many characters before they are sent. */
 export declare const LOG_MESSAGE_MAX = 2000;
+/** How long one keepAwake() keeps the screen on, counted from the latest one SlimTV received. */
+export declare const AWAKE_LEASE_MS: number;
+/** How often a game renews keepAwake() while it wants the screen kept on: well inside the lease. */
+export declare const AWAKE_RENEW_MS: number;
+/** The shim sends keepAwake() to SlimTV at most this often; calls in between change nothing. */
+export declare const AWAKE_SEND_GAP_MS = 30000;
 export interface DeviceInfo {
     /** For example "Onn 4K Pro Gen 2". */
     readonly name: string;
@@ -86,6 +92,13 @@ export interface SlimTVApi {
      * unknown level is sent as "info" and a non-string message is converted to a string.
      */
     log(level: LogLevel, message: string): void;
+    /**
+     * Keeps the screen on, with no screensaver, for AWAKE_LEASE_MS from now. Call it again every
+     * AWAKE_RENEW_MS while the screen should stay on; stop calling it and the lease runs out. Calls
+     * closer together than AWAKE_SEND_GAP_MS are not sent again. Missing from shims before Wakeful
+     * Owl, so plain JavaScript checks for it first.
+     */
+    keepAwake(): void;
     readonly input: SlimTVInput;
 }
 export declare const INPUT_EVENT = "slimtv:input";
@@ -117,8 +130,11 @@ export interface LogMessage {
     readonly level: LogLevel;
     readonly message: string;
 }
+export interface AwakeMessage {
+    readonly type: "awake";
+}
 /** Messages the shim sends to native. "hello" is always first. */
-export type ShimToNativeMessage = HelloMessage | ReadyMessage | ExitMessage | LogMessage;
+export type ShimToNativeMessage = HelloMessage | ReadyMessage | ExitMessage | LogMessage | AwakeMessage;
 export type InputMessage = InputDetail & {
     readonly type: "input";
 };

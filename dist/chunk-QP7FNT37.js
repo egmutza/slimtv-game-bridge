@@ -1,8 +1,8 @@
-// slimtv-game-bridge shared code, release Brisk Otter (tag brisk-otter).
+// slimtv-game-bridge shared code, release Wakeful Owl (tag wakeful-owl).
 // Built by build.mjs; do not edit.
 // src/release.ts
-var RELEASE_NAME = "Brisk Otter";
-var RELEASE_TAG = "brisk-otter";
+var RELEASE_NAME = "Wakeful Owl";
+var RELEASE_TAG = "wakeful-owl";
 
 // src/contract.ts
 var ACTIONS = [
@@ -32,6 +32,9 @@ var STICKS = ["left", "right"];
 var STICK_DEAD_ZONE = 0.15;
 var LOG_LEVELS = ["debug", "info", "warn", "error"];
 var LOG_MESSAGE_MAX = 2e3;
+var AWAKE_LEASE_MS = 5 * 6e4;
+var AWAKE_RENEW_MS = 2 * 6e4;
+var AWAKE_SEND_GAP_MS = 3e4;
 var INPUT_EVENT = "slimtv:input";
 var PAUSE_EVENT = "slimtv:pause";
 var RESUME_EVENT = "slimtv:resume";
@@ -446,6 +449,9 @@ export {
   STICK_DEAD_ZONE,
   LOG_LEVELS,
   LOG_MESSAGE_MAX,
+  AWAKE_LEASE_MS,
+  AWAKE_RENEW_MS,
+  AWAKE_SEND_GAP_MS,
   INPUT_EVENT,
   PAUSE_EVENT,
   RESUME_EVENT,

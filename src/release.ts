@@ -4,7 +4,7 @@
 // checks that they agree with this file. See "Versioning" in CONTRACT.md.
 
 /** The release's "Adjective Animal" name, for example "Steady Heron". */
-export const RELEASE_NAME = "Brisk Otter";
+export const RELEASE_NAME = "Wakeful Owl";
 
 /** The git tag for this release: the name in lowercase with hyphens. */
-export const RELEASE_TAG = "brisk-otter";
+export const RELEASE_TAG = "wakeful-owl";

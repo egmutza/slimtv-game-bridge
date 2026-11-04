@@ -224,14 +224,16 @@ describe("pause and resume", () => {
   });
 });
 
-describe("ready, exit and log", () => {
+describe("ready, exit, keepAwake and log", () => {
   it("shows what SlimTV would do", () => {
     install();
     kit.ready();
     kit.exit();
+    kit.keepAwake();
     expect(toasts()).toEqual([
       "ready(): SlimTV would hide its loading screen.",
       "exit(): SlimTV would return to the home screen.",
+      "keepAwake(): SlimTV would keep the screen on for 5 more minutes.",
     ]);
   });
 

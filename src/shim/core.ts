@@ -5,6 +5,7 @@
 
 import {
   ACTIONS,
+  AWAKE_SEND_GAP_MS,
   INPUT_EVENT,
   INPUT_SOURCES,
   LOG_LEVELS,
@@ -192,6 +193,9 @@ export function createShim(
           dispatch(PAUSE_EVENT, null);
           return;
         case "resume":
+          // SlimTV ended the lease on pause and ignores "awake" until now, so a keepAwake() sent
+          // while paused counts for nothing: the next one goes at once.
+          awakeSentAt = undefined;
           dispatch(RESUME_EVENT, null);
           return;
         default:
@@ -205,6 +209,8 @@ export function createShim(
   };
 
   let readySent = false;
+  /** When "awake" was last sent (Date.now()), so a game calling keepAwake() every frame sends few. */
+  let awakeSentAt: number | undefined;
 
   const api: SlimTVApi = {
     bridge: RELEASE_NAME,
@@ -219,6 +225,13 @@ export function createShim(
     },
     log(level: LogLevel, message: string): void {
       sendLog(isOneOf(LOG_LEVELS, level) ? level : "info", toText(message));
+    },
+    keepAwake(): void {
+      const now = Date.now();
+      // A clock that went backwards counts as the gap having passed.
+      if (awakeSentAt !== undefined && now >= awakeSentAt && now - awakeSentAt < AWAKE_SEND_GAP_MS) return;
+      awakeSentAt = now;
+      send({ type: "awake" });
     },
     input: Object.freeze({
       isDown(action: Action, player?: number): boolean {

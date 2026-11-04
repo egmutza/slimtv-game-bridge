@@ -1,7 +1,10 @@
-// slimtv-game-bridge kit, release Brisk Otter (tag brisk-otter).
+// slimtv-game-bridge kit, release Wakeful Owl (tag wakeful-owl).
 // Built by build.mjs; do not edit.
 import {
   ACTIONS,
+  AWAKE_LEASE_MS,
+  AWAKE_RENEW_MS,
+  AWAKE_SEND_GAP_MS,
   DEFAULT_KEYMAP,
   GAMEPAD_BUTTONS,
   GAMEPAD_TRIGGERS,
@@ -27,7 +30,7 @@ import {
   isShimObject,
   mergeInputs,
   watchGamepads
-} from "./chunk-274DK4FR.js";
+} from "./chunk-QP7FNT37.js";
 
 // src/kit/slimtv.ts
 var PREFIX = `[SlimTV kit ${RELEASE_NAME}]`;
@@ -194,6 +197,10 @@ function exit() {
 function log(level, message) {
   slimtv()?.log(level, message);
 }
+function keepAwake() {
+  const api = slimtv();
+  if (typeof api?.keepAwake === "function") api.keepAwake();
+}
 function onPause(handler) {
   return on("slimtv:pause", handler);
 }
@@ -209,6 +216,9 @@ function on(type, handler) {
 }
 export {
   ACTIONS,
+  AWAKE_LEASE_MS,
+  AWAKE_RENEW_MS,
+  AWAKE_SEND_GAP_MS,
   DEFAULT_KEYMAP,
   GAMEPAD_BUTTONS,
   GAMEPAD_TRIGGERS,
@@ -232,6 +242,7 @@ export {
   device,
   exit,
   isSlimTV,
+  keepAwake,
   log,
   onPause,
   onResume,

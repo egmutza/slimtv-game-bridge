@@ -7,7 +7,7 @@
 //   lacks, and are caught before the page sees them, as native keys never reach a game page as
 //   keydown. Controllers follow the contract's rules.
 // - Pause and resume: F9 toggles them. No input arrives while paused.
-// - ready() and exit(): a toast says what SlimTV would do.
+// - ready(), exit() and keepAwake(): a toast says what SlimTV would do.
 // - The escape hatches: Back before ready(), and Back held for 1 second, each show a toast saying
 //   SlimTV would exit now.
 // What it can't imitate: the TV's audio rule. In a computer's browser a real key press counts as
@@ -103,6 +103,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge |
         return;
       case "exit":
         toast("exit(): SlimTV would return to the home screen.");
+        return;
+      case "awake":
+        toast("keepAwake(): SlimTV would keep the screen on for 5 more minutes.");
         return;
       case "log": {
         const level = message.level ?? "info";

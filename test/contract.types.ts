@@ -52,6 +52,11 @@ void describe;
 
 const hello: ShimToNativeMessage = { type: "hello", bridge: "Steady Heron" };
 void hello;
+const awake: ShimToNativeMessage = { type: "awake" };
+void awake;
+window.SlimTV?.keepAwake();
+// @ts-expect-error keepAwake takes no arguments: stopping is letting the lease run out
+window.SlimTV?.keepAwake(false);
 // @ts-expect-error a log message needs a level
 const badLog: ShimToNativeMessage = { type: "log", message: "x" };
 void badLog;

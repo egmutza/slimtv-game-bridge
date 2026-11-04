@@ -4,6 +4,31 @@ Each release has an "Adjective Animal" name and a git tag that is the name in lo
 hyphens. A change that needs SlimTV and every game updated together is marked **BREAKING**. See
 "Versioning" in [CONTRACT.md](CONTRACT.md).
 
+## Wakeful Owl (wakeful-owl)
+
+Nothing here is **BREAKING**: SlimTV and games can each take it up on their own, though see the
+note on checking games before SlimTV takes it up.
+
+- **Contract**: `SlimTV.keepAwake()` keeps the screen on, with no screensaver, for 5 minutes from
+  the latest call. A game that should stay on screen while nobody touches the remote calls it
+  every 2 minutes for as long as that lasts. There is no call to stop: the lease runs out on its
+  own. A pause ends it. See "Keeping the screen on" in [CONTRACT.md](CONTRACT.md).
+- **Contract**: a new `awake` message from the shim to SlimTV. The shim sends at most one every
+  30 seconds, however often the game calls `keepAwake()`, and the first one after a resume at
+  once. A SlimTV from before Wakeful Owl ignores it as an unknown message.
+- **Contract**: SlimTV no longer keeps the screen on for every game. Without `keepAwake()`, the
+  TV's own idle rules apply, so a game left untouched gets the screensaver, as any other app does.
+- **Check before SlimTV takes this up**: once it does, any game gets the screensaver after the
+  TV's idle time (10 minutes on the Onn) without a button press, whatever release it is built
+  with. A game being played is never idle that long. One with long stretches nobody plays
+  through (a video, an attract mode, a page people use from their phones) calls `keepAwake()`
+  first.
+- **Kit**: `keepAwake()`, which does nothing outside SlimTV or under an older shim. New exports:
+  `AWAKE_LEASE_MS`, `AWAKE_RENEW_MS` and `AWAKE_SEND_GAP_MS`.
+- **Fake bridge and test page**: under the fake bridge, `keepAwake()` shows a note saying what
+  SlimTV would do. The bridge test page has a Keep awake button that calls it every 2 minutes
+  while on.
+
 ## Brisk Otter (brisk-otter)
 
 Nothing here is **BREAKING**: SlimTV and games can each take it up on their own, though see the

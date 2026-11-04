@@ -62,6 +62,7 @@ describe("outside SlimTV", () => {
       kit.ready();
       kit.exit();
       kit.log("info", "x");
+      kit.keepAwake();
     }).not.toThrow();
   });
 
@@ -81,11 +82,28 @@ describe("inside SlimTV", () => {
     kit.ready();
     kit.exit();
     kit.log("warn", "hello");
+    kit.keepAwake();
     expect(sent.slice(1)).toEqual([
       { type: "ready" },
       { type: "exit" },
       { type: "log", level: "warn", message: "hello" },
+      { type: "awake" },
     ]);
+  });
+
+  it("does nothing on keepAwake under an older shim that doesn't have it", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const older = {
+      bridge: "Brisk Otter",
+      device: { name: "Onn 4K Pro Gen 2", tier: "tv" },
+      ready() {},
+      exit() {},
+      log() {},
+      input: { isDown: () => false, stick: () => ({ x: 0, y: 0 }) },
+      [SHIM_MARK]: "Brisk Otter",
+    };
+    Object.defineProperty(window, "SlimTV", { value: older, configurable: true });
+    expect(() => kit.keepAwake()).not.toThrow();
   });
 
   it("calls pause and resume handlers until they are removed", () => {

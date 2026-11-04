@@ -1,7 +1,8 @@
-// slimtv-game-bridge shared code, release Brisk Otter (tag brisk-otter).
+// slimtv-game-bridge shared code, release Wakeful Owl (tag wakeful-owl).
 // Built by build.mjs; do not edit.
 import {
   ACTIONS,
+  AWAKE_SEND_GAP_MS,
   DEFAULT_KEYMAP,
   INPUT_EVENT,
   INPUT_SOURCES,
@@ -22,7 +23,7 @@ import {
   isShimObject,
   mergeInputs,
   watchGamepads
-} from "./chunk-274DK4FR.js";
+} from "./chunk-QP7FNT37.js";
 
 // src/shim/core.ts
 var PREFIX = `[SlimTV ${RELEASE_NAME}]`;
@@ -124,6 +125,7 @@ function createShim(win, transport, device) {
           dispatch(PAUSE_EVENT, null);
           return;
         case "resume":
+          awakeSentAt = void 0;
           dispatch(RESUME_EVENT, null);
           return;
         default:
@@ -135,6 +137,7 @@ function createShim(win, transport, device) {
     }
   };
   let readySent = false;
+  let awakeSentAt;
   const api = {
     bridge: RELEASE_NAME,
     device: Object.freeze({ name: device.name, tier: device.tier }),
@@ -148,6 +151,12 @@ function createShim(win, transport, device) {
     },
     log(level, message) {
       sendLog(isOneOf(LOG_LEVELS, level) ? level : "info", toText(message));
+    },
+    keepAwake() {
+      const now = Date.now();
+      if (awakeSentAt !== void 0 && now >= awakeSentAt && now - awakeSentAt < AWAKE_SEND_GAP_MS) return;
+      awakeSentAt = now;
+      send({ type: "awake" });
     },
     input: Object.freeze({
       isDown(action, player) {
@@ -251,6 +260,9 @@ function installFakeBridge(options = {}) {
         return;
       case "exit":
         toast("exit(): SlimTV would return to the home screen.");
+        return;
+      case "awake":
+        toast("keepAwake(): SlimTV would keep the screen on for 5 more minutes.");
         return;
       case "log": {
         const level = message.level ?? "info";

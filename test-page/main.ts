@@ -2,8 +2,8 @@
 // TV. On a computer, ?platform=slimtv&fakebridge=1 runs it under the fake bridge instead.
 
 import "../src/fake/auto";
-import { ACTIONS, STICKS, type InputDetail } from "../src/contract";
-import { bridgeRelease, createInput, device, exit, isSlimTV, log, onPause, onResume, ready, RELEASE_NAME } from "../src/kit/index";
+import { ACTIONS, AWAKE_RENEW_MS, STICKS, type InputDetail } from "../src/contract";
+import { bridgeRelease, createInput, device, exit, isSlimTV, keepAwake, log, onPause, onResume, ready, RELEASE_NAME } from "../src/kit/index";
 
 declare global {
   interface Window {
@@ -81,6 +81,8 @@ onPause(() => {
 onResume(() => {
   countEvent();
   addLog("resume", "ok");
+  // A pause ended the lease, so Keep awake renews it at once rather than at its next turn.
+  if (awakeTimer !== undefined) renewAwake();
 });
 
 // ----- Held-now grid --------------------------------------------------------------------------
@@ -163,7 +165,12 @@ setInterval(drawSticks, 100);
 
 // ----- Buttons and focus ----------------------------------------------------------------------
 
-const buttons = [$<HTMLButtonElement>("ready"), $<HTMLButtonElement>("exit"), $<HTMLButtonElement>("tone")];
+const buttons = [
+  $<HTMLButtonElement>("ready"),
+  $<HTMLButtonElement>("exit"),
+  $<HTMLButtonElement>("tone"),
+  $<HTMLButtonElement>("awake"),
+];
 function moveFocus(step: number): void {
   const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
   const next = buttons[(at + step + buttons.length) % buttons.length] ?? buttons[0];
@@ -185,6 +192,33 @@ buttons[1]!.addEventListener("click", () => {
   exit();
 });
 buttons[2]!.addEventListener("click", () => void playTone("Play tone"));
+
+// Keep awake: renews keepAwake() every AWAKE_RENEW_MS while on, as a game would. Left untouched,
+// the screensaver should stay away while it is on, and come once it is off and the lease runs out.
+const awakeHint = $("awake-hint");
+let awakeTimer: ReturnType<typeof setInterval> | undefined;
+function renewAwake(): void {
+  keepAwake();
+  addLog("keepAwake() called");
+  awakeHint.textContent = `Keeping the screen on: last renewed ${time()}, again every ${AWAKE_RENEW_MS / 60_000} minutes.`;
+  awakeHint.className = "ok";
+}
+awakeHint.textContent = "Keep awake is off: the screensaver may start after the TV's idle time.";
+awakeHint.className = "muted";
+buttons[3]!.addEventListener("click", () => {
+  if (awakeTimer === undefined) {
+    renewAwake();
+    awakeTimer = setInterval(renewAwake, AWAKE_RENEW_MS);
+    buttons[3]!.textContent = "Keep awake: on";
+  } else {
+    clearInterval(awakeTimer);
+    awakeTimer = undefined;
+    addLog("keepAwake() stopped", "warn");
+    buttons[3]!.textContent = "Keep awake: off";
+    awakeHint.textContent = `Keep awake is off since ${time()}: the screen stays on for at most 5 more minutes.`;
+    awakeHint.className = "warn";
+  }
+});
 
 // ----- Device and screen ----------------------------------------------------------------------
 
