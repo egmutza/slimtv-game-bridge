@@ -210,8 +210,35 @@ second_pid=
 second_workdir=
 if have agy; then
   second_workdir="$(mktemp -d)"
-  second_settings="$(python3 -c 'import json, sys; print(json.dumps({"agentMode": "plan", "toolPermission": "proceed-in-sandbox", "enableTerminalSandbox": True, "permissions": {"allow": ["read_file(%s)" % sys.argv[1]], "deny": ["write_file(*)"]}}))' "$repo_root")"
-  second_prompt="The project under review is at $repo_root; every relative path below is relative to it.
+  # Every folder outside the repo is refused by name, level by level. A read
+  # that matches no rule makes headless agy cancel the whole review with no
+  # output (2026-11-23, petday: one read of ~/.claude/CLAUDE.md), while a
+  # refused read is answered "refused" and the review carries on. A deny rule
+  # beats an allow rule, so only the siblings of the repo's own folders are
+  # listed, never the folders above it. System folders stay unlisted: denying
+  # them breaks agy's shell sandbox ("connecting to sandbox server"). /tmp,
+  # home and the other projects are listed. Verified live on agy 1.5.15.
+  second_settings="$(python3 - "$repo_root" <<'PY'
+import json, os, sys
+SYSTEM = {"bin", "boot", "dev", "etc", "lib", "lib32", "lib64", "libx32", "proc", "run", "sbin", "sys", "usr", "var"}
+repo = os.path.abspath(sys.argv[1])
+deny = ["write_file(*)"]
+child = repo
+while os.path.dirname(child) != child:
+    parent = os.path.dirname(child)
+    try:
+        names = sorted(os.listdir(parent))
+    except OSError:
+        names = []
+    if parent == "/":
+        names = [n for n in names if n not in SYSTEM]
+    deny += ["read_file(%s)" % os.path.join(parent, n) for n in names if os.path.join(parent, n) != child]
+    child = parent
+print(json.dumps({"agentMode": "plan", "toolPermission": "proceed-in-sandbox", "enableTerminalSandbox": True,
+                  "permissions": {"allow": ["read_file(%s)" % repo], "deny": deny}}))
+PY
+)"
+  second_prompt="The project under review is at $repo_root; every relative path below is relative to it. Only files inside it can be read; any other path is refused, so don't try.
 
 $prompt"
   (cd "$second_workdir" && exec agy --sandbox --settings "$second_settings" --print-timeout 5m -p "$second_prompt" < /dev/null > "$second_file" 2> "$second_log") &
