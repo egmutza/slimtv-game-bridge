@@ -183,6 +183,50 @@ status=0
 # heartbeat is (re)touched, closes the gap: a status check in that window
 # now sees no output and a fresh heartbeat, i.e. exit 2 (still running).
 rm -f "$output_file"
+# --- Antigravity second opinion: start (added 2026-11-23) -------------------
+# Eric's call: every review also gets an independent second opinion from
+# Google's Antigravity CLI (`agy`, Gemini), run side by side with the primary
+# reviewer below. It never replaces the primary verdict, and can delay it
+# by at most agy's 5-minute cap (it usually finishes well before Codex):
+#  - the primary reviewer's text goes to a staging file, and the real output
+#    file (what scripts/foreman-review-status reads) is written once, at the
+#    very end, with both reviews in it -- a status check never sees half;
+#  - if agy is missing, fails, or times out, the combined output says so and
+#    the primary verdict stands on its own.
+# Read-only is enforced, not just requested: agy runs from an empty temp
+# folder with the repo granted only through a read_file rule, which its
+# sandbox mounts read-only for shell commands ("Read-only file system"), and
+# a write_file deny rule refuses its own edit tool. Both verified live on
+# agy 1.5.14. Its paths are absolute because it does not run in the repo.
+final_output="$output_file"
+output_file="$scratch/primary-output.txt"
+second_file="$scratch/antigravity-output.txt"
+second_log="$scratch/antigravity-stderr.txt"
+# Heartbeat first: from the moment the old verdict is gone, a status check
+# must read "still running", not a previous run's stale heartbeat.
+touch "$heartbeat_file"
+rm -f "$final_output" "$output_file" "$second_file" "$second_log"
+second_pid=
+second_workdir=
+if have agy; then
+  second_workdir="$(mktemp -d)"
+  second_settings="$(python3 -c 'import json, sys; print(json.dumps({"agentMode": "plan", "toolPermission": "proceed-in-sandbox", "enableTerminalSandbox": True, "permissions": {"allow": ["read_file(%s)" % sys.argv[1]], "deny": ["write_file(*)"]}}))' "$repo_root")"
+  second_prompt="The project under review is at $repo_root; every relative path below is relative to it.
+
+$prompt"
+  (cd "$second_workdir" && exec agy --sandbox --settings "$second_settings" --print-timeout 5m -p "$second_prompt" < /dev/null > "$second_file" 2> "$second_log") &
+  second_pid=$!
+  # Keeps the heartbeat fresh while agy is still going after the primary
+  # reviewer has finished, so a status check reads "still running", not dead.
+  (
+    while kill -0 "$second_pid" 2>/dev/null; do
+      touch "$heartbeat_file"
+      sleep 3
+    done
+  ) &
+  disown
+fi
+# --- Antigravity second opinion: end of start block ------------------------
 touch "$heartbeat_file"
 "run_$chosen" > >(tee "$output_file") &
 reviewer_pid=$!
@@ -268,4 +312,47 @@ elif [ "$status" -ne 0 ]; then
   echo "                verdict stands -- a nonzero exit is not a reason to re-run" >&2
   echo "                the review with the other tool." >&2
 fi
+# --- Antigravity second opinion: collect and publish (added 2026-11-23) ----
+second_status=0
+if [ -n "$second_pid" ]; then
+  if [ ! -s "$output_file" ]; then
+    # No primary verdict means this review failed whatever agy says, so the
+    # caller is not kept waiting on a second opinion of a review that didn't
+    # happen. $second_pid is agy itself (exec above), not a wrapper shell.
+    kill "$second_pid" 2>/dev/null || true
+  fi
+  wait "$second_pid" || second_status=$?
+fi
+if [ -n "$second_workdir" ]; then
+  rm -rf "$second_workdir"
+fi
+if [ -s "$output_file" ]; then
+  second_section="$scratch/second-opinion-section.txt"
+  {
+    echo "=== Second opinion (Antigravity / Gemini, read-only) ==="
+    if [ -s "$second_file" ]; then
+      cat "$second_file"
+    elif [ -z "$second_pid" ]; then
+      echo "(not run: agy is not installed on this machine)"
+    else
+      echo "(no review text: agy exited $second_status; details in $second_log)"
+    fi
+    echo
+    echo "=== How to read this ==="
+    echo "Two independent reviewers. Treat a REVISE from either one as findings"
+    echo "to fix or to answer explicitly, and report both verdicts to the user."
+  } > "$second_section"
+  {
+    echo "=== Primary review ($chosen) ==="
+    cat "$output_file"
+    echo
+    cat "$second_section"
+  } > "$final_output.tmp"
+  mv "$final_output.tmp" "$final_output"
+  # The primary review already streamed to stdout above; a caller reading
+  # stdout directly (no Foreman hand-off) gets the second opinion here.
+  echo
+  cat "$second_section"
+fi
+# --- Antigravity second opinion: end ----------------------------------------
 exit "$status"
