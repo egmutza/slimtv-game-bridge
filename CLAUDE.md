@@ -75,3 +75,10 @@ for anything intelligence-sensitive, `xhigh` for coding and agentic work, and
 Use `scripts/foreman-commit "message" path...` once the user has asked for a
 commit and named the scope. It commits only the paths given, even if unrelated
 work is already staged, and it never pushes. A push is separate authorization.
+
+## Design work
+
+This project has no screens today. If it ever needs one (a web page, app UI, a
+dashboard), first copy the "Design work: ask Eric which design skill to use" section from
+`~/workspace/claude-code-boilerplate/CLAUDE.md` into this file in place of this note, then
+follow it. The skills it names are already installed on agent-vm.
