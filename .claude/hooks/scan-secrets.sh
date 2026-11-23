@@ -68,7 +68,12 @@ fi
 # The fixed-prefix patterns are token formats with a known shape: Anthropic,
 # AWS, private keys, GitHub (classic and fine-grained), npm, Google API keys and
 # Slack.
-if printf '%s' "$content" | grep -Eiq \
+# Fed by a here-string, not `printf | grep -q`: grep -q exits at its first
+# match, and on a large write printf then dies of SIGPIPE, which pipefail
+# turns into a failed `if` -- so the bigger the write, the likelier a real
+# secret was waved through. Reproduced 2026-11-23: a secret followed by
+# ~360KB of text passed; the same secret alone was blocked.
+if grep -Eiq <<< "$content" \
   -e 'sk-ant-[a-z0-9-]+' \
   -e 'AKIA[0-9A-Z]{16}' \
   -e '-----BEGIN ([A-Z]+ )*PRIVATE KEY-----' \
