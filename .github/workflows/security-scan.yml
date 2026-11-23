@@ -1,0 +1,110 @@
+# Weekly security scan. The same file is used in every project; keep the copies identical.
+# Master copy: claude-code-boilerplate/.github/workflows/security-scan.yml
+#
+# Three checks, each independent (a failure in one still lets the others run):
+#   1. Secrets   - gitleaks over the full git history (passwords, API keys, private keys).
+#   2. Libraries - OSV-Scanner over every dependency file it recognises (Python, npm, Go,
+#                  Rust, Gradle, Swift, ...). Only versions actually written in the files are
+#                  checked (--no-resolve); guessing unpinned versions produced false alarms.
+#   3. Code      - Semgrep community rules, ERROR severity, report only (never fails the run
+#                  on findings; see the step's comment for why).
+#
+# Silencing a false alarm, per project (each needs a reason):
+#   Secrets:   add the finding's fingerprint to .gitleaksignore, with a # comment saying why.
+#   Libraries: add an [[IgnoredVulns]] entry with id, reason and ignoreUntil to osv-scanner.toml.
+#   Code:      add a `# nosemgrep: <rule-id>` comment on the line, saying why.
+#
+# Tool versions are pinned and their downloads checked against known SHA-256 sums. Bump them
+# deliberately (and only to releases at least a week old), never to "latest".
+#
+# Secrets policy: this workflow needs no secrets.
+
+name: Security scan
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Mondays 09:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  OSV_VERSION: 2.7.1
+  OSV_SHA256: fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8
+  SEMGREP_VERSION: 1.184.0
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install scanners
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz -C bin gitleaks
+          curl -fsSL -o bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  bin/osv-scanner" | sha256sum -c -
+          chmod +x bin/osv-scanner
+          pipx install "semgrep==${SEMGREP_VERSION}"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Secrets (gitleaks)
+        id: secrets
+        if: always()
+        run: gitleaks git . --redact --no-banner --verbose
+
+      - name: Libraries (OSV-Scanner)
+        id: libraries
+        if: always()
+        run: |
+          set +e
+          osv-scanner scan source -r --no-resolve .
+          code=$?
+          # 128 = no dependency files found, which is fine for a project without any.
+          if [ "$code" -eq 128 ]; then echo "No dependency files found."; exit 0; fi
+          exit "$code"
+
+      # Report-only: on the first sweep across all projects (2026-11-23) nearly every ERROR
+      # finding was a false alarm (parameterised SQL, list-form subprocess calls, LAN probes),
+      # so failing the run on them would bury the high-signal checks above. Findings are
+      # listed in this step's log and counted in the summary. The step still fails if
+      # Semgrep itself breaks.
+      - name: Code patterns (Semgrep, report only)
+        id: code
+        if: always()
+        run: |
+          semgrep scan --config p/default --metrics=off --severity ERROR --json-output="$RUNNER_TEMP/semgrep.json" .
+          python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["results"]))' "$RUNNER_TEMP/semgrep.json" > "$RUNNER_TEMP/semgrep.count"
+
+      - name: Summary
+        if: always()
+        env:
+          SECRETS: ${{ steps.secrets.outcome }}
+          LIBRARIES: ${{ steps.libraries.outcome }}
+          CODE: ${{ steps.code.outcome }}
+        run: |
+          verdict() { if [ "$1" = success ]; then echo "OK"; else echo "PROBLEM FOUND - open this step's log"; fi; }
+          if [ "$CODE" = success ]; then
+            n=$(cat "$RUNNER_TEMP/semgrep.count" 2>/dev/null || echo "?")
+            if [ "$n" = 0 ]; then code_line="none flagged"; else code_line="$n flagged for a look (often false alarms; not a failure)"; fi
+          else
+            code_line="the checker itself failed - open this step's log"
+          fi
+          {
+            echo "## Weekly security scan"
+            echo ""
+            echo "- Leaked passwords or keys: $(verdict "$SECRETS")"
+            echo "- Libraries with known security holes: $(verdict "$LIBRARIES")"
+            echo "- Possibly unsafe code patterns: $code_line"
+          } >> "$GITHUB_STEP_SUMMARY"
